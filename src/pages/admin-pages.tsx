@@ -22,6 +22,8 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Download,
+  LayoutGrid,
+  List,
   MapPinned,
   PencilLine,
   Plus,
@@ -82,6 +84,7 @@ import {
 import { isSupabaseConfigured } from "@/integrations/supabase/client";
 import { DataTable } from "@/components/shared/data-table";
 import { PageHeader } from "@/components/shared/page-header";
+import { StallHeatMap } from "@/components/shared/stall-heat-map";
 import { StatCard } from "@/components/shared/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -652,6 +655,7 @@ export function AdminStallsPage() {
   const [modal, setModal] = useState<"form" | "delete" | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ sectionId: "", stallNumber: "", stallType: "", monthlyRate: "0", status: "Available", notes: "" });
+  const [view, setView] = useState<"map" | "list">("map");
 
   const openCreate = () => {
     setEditId(null);
@@ -663,7 +667,7 @@ export function AdminStallsPage() {
     const stall = data?.rows.find((r) => r.id === id);
     if (!stall) return;
     setEditId(id);
-    setForm({ sectionId: stall.sectionId, stallNumber: stall.stall.replace(`${stall.section} `, ""), stallType: stall.type, monthlyRate: String(stall.rate), status: stall.status, notes: stall.notes });
+    setForm({ sectionId: stall.sectionId, stallNumber: stall.stallNumber, stallType: stall.type, monthlyRate: String(stall.rate), status: stall.status, notes: stall.notes });
     setModal("form");
   };
 
@@ -692,7 +696,30 @@ export function AdminStallsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        action={<Button onClick={openCreate} variant="secondary"><Plus className="mr-2 h-4 w-4" />New stall</Button>}
+        action={
+          <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${view === "map" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setView("map")}
+                type="button"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                Map
+              </button>
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${view === "list" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setView("list")}
+                type="button"
+              >
+                <List className="h-3.5 w-3.5" />
+                List
+              </button>
+            </div>
+            <Button onClick={openCreate} variant="secondary"><Plus className="mr-2 h-4 w-4" />New stall</Button>
+          </div>
+        }
         description="Manage sections, rates, and occupancy status with visibility into open inventory."
         eyebrow="Admin module"
         title="Stall inventory"
@@ -702,24 +729,28 @@ export function AdminStallsPage() {
       {data ? (
         <>
           <SummaryGrid summary={data.summary} />
-          <Tbl head={["Stall", "Type", "Section", "Monthly rate", "Status", "Notes", "Actions"]}>
-            {data.rows.map((item) => (
-              <Tr key={item.id}>
-                <Td><span className="font-medium text-foreground">{item.stall}</span></Td>
-                <Td className="text-muted-foreground">{item.type}</Td>
-                <Td>{item.section}</Td>
-                <Td>{formatCurrency(item.rate)}</Td>
-                <Td><StatusBadge status={item.status} /></Td>
-                <Td className="max-w-[180px] truncate text-muted-foreground">{item.notes || "—"}</Td>
-                <Td>
-                  <div className="flex gap-2">
-                    <Button onClick={() => openEdit(item.id)} size="sm" variant="outline"><PencilLine className="mr-2 h-3 w-3" />Edit</Button>
-                    <Button onClick={() => openDelete(item.id)} size="sm" variant="destructive"><Trash2 className="h-3 w-3" /></Button>
-                  </div>
-                </Td>
-              </Tr>
-            ))}
-          </Tbl>
+          {view === "map" ? (
+            <StallHeatMap onEdit={openEdit} stalls={data.rows} />
+          ) : (
+            <Tbl head={["Stall", "Type", "Section", "Monthly rate", "Status", "Notes", "Actions"]}>
+              {data.rows.map((item) => (
+                <Tr key={item.id}>
+                  <Td><span className="font-medium text-foreground">{item.stall}</span></Td>
+                  <Td className="text-muted-foreground">{item.type}</Td>
+                  <Td>{item.section}</Td>
+                  <Td>{formatCurrency(item.rate)}</Td>
+                  <Td><StatusBadge status={item.status} /></Td>
+                  <Td className="max-w-[180px] truncate text-muted-foreground">{item.notes || "—"}</Td>
+                  <Td>
+                    <div className="flex gap-2">
+                      <Button onClick={() => openEdit(item.id)} size="sm" variant="outline"><PencilLine className="mr-2 h-3 w-3" />Edit</Button>
+                      <Button onClick={() => openDelete(item.id)} size="sm" variant="destructive"><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+            </Tbl>
+          )}
         </>
       ) : null}
 

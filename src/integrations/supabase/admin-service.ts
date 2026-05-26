@@ -59,6 +59,7 @@ export interface AdminStallRecord {
   id: string;
   sectionId: string;
   section: string;
+  stallNumber: string;
   stall: string;
   type: string;
   rate: number;
@@ -980,6 +981,7 @@ export async function fetchStalls(): Promise<{
     id: item.id,
     sectionId: item.section_id,
     section: core.sectionById.get(item.section_id)?.name ?? "Unassigned",
+    stallNumber: item.stall_number,
     stall: `${core.sectionById.get(item.section_id)?.name ?? "Section"} ${item.stall_number}`,
     type: item.stall_type,
     rate: Number(item.monthly_rate ?? 0),
