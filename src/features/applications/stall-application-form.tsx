@@ -68,22 +68,22 @@ export function StallApplicationForm({
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+    <Card className="overflow-hidden border-0 shadow-none">
+      <CardHeader className="bg-gradient-to-br from-[#0aa073] to-[#18b982] px-8 py-6 text-white">
+        <CardTitle className="text-2xl text-white">{title}</CardTitle>
+        <CardDescription className="font-semibold text-white/90">{description}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-8 py-6">
         <form className="space-y-4" onSubmit={handleSaveDraft}>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Business type</label>
-              <Input {...form.register("businessType")} />
+              <label className="text-xs font-bold uppercase tracking-wide text-slate-800">Business type *</label>
+              <Input placeholder="Select business type" {...form.register("businessType")} />
               <FieldError message={form.formState.errors.businessType?.message} />
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Preferred section</label>
+              <label className="text-xs font-bold uppercase tracking-wide text-slate-800">Preferred section *</label>
               <Select {...form.register("preferredSection")}>
                 <option>Dry Goods</option>
                 <option>Wet Market</option>
@@ -94,7 +94,7 @@ export function StallApplicationForm({
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Preferred stall type</label>
+              <label className="text-xs font-bold uppercase tracking-wide text-slate-800">Stall preference *</label>
               <Select {...form.register("preferredStallType")}>
                 <option>General Merchandise</option>
                 <option>Fish</option>
@@ -106,27 +106,31 @@ export function StallApplicationForm({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Business notes</label>
-            <Textarea rows={4} {...form.register("notes")} />
+            <label className="text-xs font-bold uppercase tracking-wide text-slate-800">Additional information</label>
+            <Textarea
+              placeholder="Tell us more about your business and why you'd like to rent a stall..."
+              rows={4}
+              {...form.register("notes")}
+            />
             <FieldError message={form.formState.errors.notes?.message} />
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Button disabled={isSubmitting} type="submit">
+          <div className="grid gap-3 pt-3 sm:grid-cols-2">
+            <Button className="bg-[#00966f] uppercase hover:bg-[#00825f]" disabled={isSubmitting} type="submit">
               {saveLabel}
             </Button>
             {onSubmitApplication ? (
               <Button
+                className="bg-[#00966f] uppercase hover:bg-[#00825f]"
                 disabled={isSubmitting}
                 onClick={handleSubmitApplication}
                 type="button"
-                variant="secondary"
               >
                 {submitLabel}
               </Button>
             ) : null}
             {onDelete ? (
-              <Button disabled={isSubmitting} onClick={onDelete} type="button" variant="destructive">
+              <Button className="sm:col-span-2" disabled={isSubmitting} onClick={onDelete} type="button" variant="destructive">
                 Delete draft
               </Button>
             ) : null}

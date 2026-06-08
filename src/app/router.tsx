@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { adminNavigation, vendorNavigation } from "@/app/navigation";
+import { AdminLayout } from "@/components/layout/admin-layout";
 import { AuthLayout } from "@/components/layout/auth-layout";
 import { PortalLayout } from "@/components/layout/portal-layout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -96,7 +97,7 @@ export function AppRouter() {
           <Route element={<BackOfficeRoute />}>
             <Route
               path="/admin"
-              element={<PortalLayout navigation={adminNavigation} portalName="Admin Portal" />}
+              element={<AdminLayout navigation={adminNavigation} />}
             >
               <Route index element={<Navigate replace to="dashboard" />} />
               <Route path="dashboard" element={<AdminDashboardPage />} />
@@ -199,7 +200,7 @@ function RootRedirect() {
   const { isAuthenticated, isBootstrapping, user } = useAuth();
 
   if (isBootstrapping) {
-    return null;
+    return <RouteLoader />;
   }
 
   if (!isAuthenticated || !user) {
@@ -213,7 +214,7 @@ function GuestOnlyRoute() {
   const { isAuthenticated, isBootstrapping, user } = useAuth();
 
   if (isBootstrapping) {
-    return null;
+    return <RouteLoader />;
   }
 
   if (isAuthenticated && user) {
@@ -227,7 +228,7 @@ function BackOfficeRoute() {
   const { isAuthenticated, isBootstrapping, user } = useAuth();
 
   if (isBootstrapping) {
-    return null;
+    return <RouteLoader />;
   }
 
   if (!isAuthenticated || !user) {
@@ -245,7 +246,7 @@ function VendorOnlyRoute() {
   const { isAuthenticated, isBootstrapping, user } = useAuth();
 
   if (isBootstrapping) {
-    return null;
+    return <RouteLoader />;
   }
 
   if (!isAuthenticated || !user) {

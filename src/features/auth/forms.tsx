@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -33,7 +33,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 type RegisterFormValues = z.infer<typeof registerSchema>;
 type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>;
 
-export function LoginForm() {
+export function LoginForm({ portal = "admin" }: { portal?: "admin" | "vendor" }) {
   const navigate = useNavigate();
   const { signIn } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
@@ -44,6 +44,13 @@ export function LoginForm() {
       password: "culasi123",
     },
   });
+
+  useEffect(() => {
+    form.reset({
+      email: portal === "vendor" ? "vendor@culasi.gov.ph" : "admin@culasi.gov.ph",
+      password: "culasi123",
+    });
+  }, [form, portal]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
@@ -56,9 +63,9 @@ export function LoginForm() {
   });
 
   return (
-    <form className="space-y-4" onSubmit={onSubmit}>
+    <form className="space-y-5" onSubmit={onSubmit}>
       <Field label="Email" error={form.formState.errors.email?.message}>
-        <Input {...form.register("email")} id="email" />
+        <Input {...form.register("email")} id="email" placeholder="Enter your email" />
       </Field>
 
       <Field label="Password" error={form.formState.errors.password?.message}>
@@ -67,6 +74,7 @@ export function LoginForm() {
             {...form.register("password")}
             className="pr-12"
             id="password"
+            placeholder="Enter your password"
             type={showPassword ? "text" : "password"}
           />
           <button
@@ -80,8 +88,8 @@ export function LoginForm() {
         </div>
       </Field>
 
-      <Button className="w-full" disabled={form.formState.isSubmitting} type="submit">
-        {form.formState.isSubmitting ? "Signing in..." : "Access dashboard"}
+      <Button className="h-10 w-full bg-[#294cc2] uppercase hover:bg-[#2045b8]" disabled={form.formState.isSubmitting} type="submit">
+        {form.formState.isSubmitting ? "Signing in..." : "Sign In"}
       </Button>
     </form>
   );
@@ -122,31 +130,38 @@ export function RegisterForm() {
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Full name" error={form.formState.errors.name?.message}>
-          <Input {...form.register("name")} />
+        <div className="md:col-span-2">
+          <Field label="Full name *" error={form.formState.errors.name?.message}>
+            <Input placeholder="Enter your full name" {...form.register("name")} />
+          </Field>
+        </div>
+        <Field label="Email address *" error={form.formState.errors.email?.message}>
+          <Input placeholder="your.email@example.com" {...form.register("email")} />
         </Field>
-        <Field label="Email" error={form.formState.errors.email?.message}>
-          <Input {...form.register("email")} />
+        <Field label="Phone number *" error={form.formState.errors.phone?.message}>
+          <Input placeholder="(555) 123-4567" {...form.register("phone")} />
         </Field>
-        <Field label="Business name" error={form.formState.errors.businessName?.message}>
-          <Input {...form.register("businessName")} />
-        </Field>
-        <Field label="Phone" error={form.formState.errors.phone?.message}>
-          <Input {...form.register("phone")} />
+        <div className="md:col-span-2">
+          <Field label="Business name *" error={form.formState.errors.businessName?.message}>
+            <Input placeholder="Name of your business" {...form.register("businessName")} />
+          </Field>
+        </div>
+        <div className="md:col-span-2">
+          <Field label="Address *" error={form.formState.errors.address?.message}>
+            <Textarea rows={3} placeholder="Business or home address" {...form.register("address")} />
+          </Field>
+        </div>
+        <Field label="Password *" error={form.formState.errors.password?.message}>
+          <Input placeholder="Create a password" type="password" {...form.register("password")} />
         </Field>
       </div>
 
-      <Field label="Address" error={form.formState.errors.address?.message}>
-        <Textarea rows={3} {...form.register("address")} />
-      </Field>
-
-      <Field label="Password" error={form.formState.errors.password?.message}>
-        <Input type="password" {...form.register("password")} />
-      </Field>
-
-      <Button className="w-full" disabled={form.formState.isSubmitting} type="submit">
-        {form.formState.isSubmitting ? "Creating account..." : "Create vendor account"}
+      <Button className="h-11 w-full bg-[#00966f] uppercase hover:bg-[#00825f]" disabled={form.formState.isSubmitting} type="submit">
+        {form.formState.isSubmitting ? "Submitting..." : "Submit Application"}
       </Button>
+      <p className="text-center text-xs leading-5 text-slate-500">
+        Your application will be reviewed by the market administrator. You will be notified once approved.
+      </p>
     </form>
   );
 }
@@ -175,7 +190,7 @@ export function ForgotPasswordForm() {
         <Input {...form.register("email")} />
       </Field>
 
-      <Button className="w-full" type="submit">
+      <Button className="w-full bg-[#294cc2] uppercase hover:bg-[#2045b8]" type="submit">
         Request password reset
       </Button>
     </form>
@@ -193,7 +208,7 @@ function Field({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium text-foreground">{label}</label>
+      <label className="text-xs font-bold uppercase tracking-wide text-slate-800">{label}</label>
       {children}
       <FormError message={error} />
     </div>

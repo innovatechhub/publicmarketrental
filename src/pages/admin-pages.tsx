@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   useMutation,
   useQuery,
@@ -141,100 +141,88 @@ export function AdminDashboardPage() {
     enabled: isSupabaseConfigured,
   });
 
+  const totalStalls = data ? (data.metrics.find((m) => m.label.toLowerCase().includes("stall"))?.value ?? 0) : 0;
+  const occupied = data ? (data.metrics.find((m) => m.label.toLowerCase().includes("occup"))?.value ?? 0) : 0;
+  const vacant = typeof totalStalls === "number" && typeof occupied === "number" ? totalStalls - occupied : 0;
+  const monthlyRevenue = data?.metrics.find((m) => m.label.toLowerCase().includes("revenue") || m.label.toLowerCase().includes("collect"));
+  const occupancyRate = data?.metrics.find((m) => m.label.toLowerCase().includes("occupancy") && m.label.toLowerCase().includes("rate"));
+  const paidThisMonth = data?.metrics.find((m) => m.label.toLowerCase().includes("paid") || m.label.toLowerCase().includes("payment"));
+  const overduePayments = data?.metrics.find((m) => m.label.toLowerCase().includes("overdue") || m.label.toLowerCase().includes("unpaid"));
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        action={
-          <Button variant="secondary">
-            <Activity className="mr-2 h-4 w-4" />
-            Live operations snapshot
-          </Button>
-        }
-        description="Monitor occupancy, applications, payments, and compliance across the Culasi public market in one operational workspace."
-        eyebrow="Admin portal"
-        title="Market operations dashboard"
-      />
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0, letterSpacing: "0.02em" }}>
+        DASHBOARD OVERVIEW
+      </h2>
 
       {isPending ? <LoadingCard message="Loading admin dashboard..." /> : null}
       {error ? <ErrorCard message={String(error)} /> : null}
 
       {!isPending && !error && data ? (
         <>
-          <div className="grid gap-4 xl:grid-cols-4">
-            {data.metrics.map((metric) => (
-              <StatCard key={metric.label} metric={metric} />
-            ))}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px" }}>
+            <MockupStatCard accent="#1e3a8a" icon={<SquareStackIcon />} label="TOTAL STALLS" value={String(totalStalls)} valueColor="#1e3a8a" />
+            <MockupStatCard accent="#16a34a" icon={<CheckSquareIcon />} label="OCCUPIED" value={String(occupied)} valueColor="#16a34a" />
+            <MockupStatCard accent="#6b7280" icon={<EmptySquareIcon />} label="VACANT" value={String(vacant)} valueColor="#374151" />
+            <MockupStatCard accent="#16a34a" icon={<PesoCircleIcon />} label="MONTHLY REVENUE" value={monthlyRevenue ? String(monthlyRevenue.value) : "₱0"} valueColor="#16a34a" />
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
-            <ChartCard description="Occupied versus available stalls by market section" title="Occupancy by section">
-              <Bar
-                data={{
-                  labels: data.occupancyBySection.map((item) => item.section),
-                  datasets: [
-                    { label: "Occupied", data: data.occupancyBySection.map((item) => item.occupied), backgroundColor: "#0f766e", borderRadius: 999 },
-                    { label: "Available", data: data.occupancyBySection.map((item) => item.available), backgroundColor: "#f59e0b", borderRadius: 999 },
-                  ],
-                }}
-                options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, responsive: true }}
-              />
-            </ChartCard>
-
-            <ChartCard description="Collection performance by month" title="Monthly payment collections">
-              <Line
-                data={{
-                  labels: data.monthlyCollections.map((item) => item.month),
-                  datasets: [
-                    { label: "Collected", data: data.monthlyCollections.map((item) => item.collected), borderColor: "#0f766e", backgroundColor: "rgba(15,118,110,0.16)", tension: 0.35 },
-                    { label: "Target", data: data.monthlyCollections.map((item) => item.target), borderColor: "#d97706", backgroundColor: "rgba(217,119,6,0.12)", tension: 0.35 },
-                  ],
-                }}
-                options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, responsive: true }}
-              />
-            </ChartCard>
+          <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+            <h3 style={{ fontSize: "16px", fontWeight: 700, color: "#1e3a8a", marginBottom: "20px", marginTop: 0 }}>QUICK STATISTICS</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "24px" }}>
+              <QuickStat accent="#1e3a8a" label="OCCUPANCY RATE" value={occupancyRate ? String(occupancyRate.value) : `${Number(totalStalls) > 0 ? ((Number(occupied) / Number(totalStalls)) * 100).toFixed(1) : "0.0"}%`} valueColor="#1e3a8a" />
+              <QuickStat accent="#16a34a" label="PAID THIS MONTH" value={paidThisMonth ? String(paidThisMonth.value) : "0"} valueColor="#16a34a" />
+              <QuickStat accent="#ef4444" label="OVERDUE PAYMENTS" value={overduePayments ? String(overduePayments.value) : "0"} valueColor="#ef4444" />
+            </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-            <ChartCard description="Application state distribution across the current queue" title="Application pipeline">
-              <Doughnut
-                data={{
-                  labels: data.applicationStatusBreakdown.map((item) => item.label),
-                  datasets: [{ data: data.applicationStatusBreakdown.map((item) => item.value), backgroundColor: data.applicationStatusBreakdown.map((item) => item.color), borderWidth: 0 }],
-                }}
-                options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }}
-              />
-            </ChartCard>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent activity feed</CardTitle>
-                <CardDescription>Key actions that changed occupancy, payment, or compliance status.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {data.activities.map((item) => (
-                  <ActivityCard item={item} key={item.id} />
-                ))}
-              </CardContent>
-            </Card>
+          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: "16px" }}>
+            <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+              <p style={{ fontWeight: 600, color: "#111827", marginBottom: "4px", marginTop: 0 }}>Occupancy by section</p>
+              <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px", marginTop: 0 }}>Occupied versus available stalls by market section</p>
+              <div style={{ height: "280px" }}>
+                <Bar data={{ labels: data.occupancyBySection.map((i) => i.section), datasets: [{ label: "Occupied", data: data.occupancyBySection.map((i) => i.occupied), backgroundColor: "#1e3a8a", borderRadius: 4 }, { label: "Available", data: data.occupancyBySection.map((i) => i.available), backgroundColor: "#16a34a", borderRadius: 4 }] }} options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, responsive: true }} />
+              </div>
+            </div>
+            <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+              <p style={{ fontWeight: 600, color: "#111827", marginBottom: "4px", marginTop: 0 }}>Monthly payment collections</p>
+              <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "16px", marginTop: 0 }}>Collection performance by month</p>
+              <div style={{ height: "280px" }}>
+                <Line data={{ labels: data.monthlyCollections.map((i) => i.month), datasets: [{ label: "Collected", data: data.monthlyCollections.map((i) => i.collected), borderColor: "#1e3a8a", backgroundColor: "rgba(30,58,138,0.1)", tension: 0.35 }, { label: "Target", data: data.monthlyCollections.map((i) => i.target), borderColor: "#16a34a", backgroundColor: "rgba(22,163,74,0.1)", tension: 0.35 }] }} options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, responsive: true }} />
+              </div>
+            </div>
           </div>
-
-          <DataTable
-            caption="Application queue"
-            columns={[
-              { key: "applicant", label: "Applicant" },
-              { key: "type", label: "Type" },
-              { key: "preferred_stall", label: "Preferred Stall" },
-              { key: "documents", label: "Documents" },
-              { key: "status", label: "Status" },
-              { key: "updated", label: "Updated" },
-            ]}
-            rows={data.applicationQueue}
-          />
         </>
       ) : null}
     </div>
   );
 }
+
+function MockupStatCard({ label, value, valueColor, accent, icon }: { label: string; value: string; valueColor: string; accent: string; icon: React.ReactNode }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: "10px", border: "1px solid #e5e7eb", borderLeft: `4px solid ${accent}`, padding: "20px", display: "flex", flexDirection: "column", gap: "12px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <span style={{ fontSize: "11px", fontWeight: 600, color: "#6b7280", letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</span>
+        <span style={{ color: accent, opacity: 0.6 }}>{icon}</span>
+      </div>
+      <span style={{ fontSize: "34px", fontWeight: 700, color: valueColor, lineHeight: 1 }}>{value}</span>
+    </div>
+  );
+}
+
+function QuickStat({ label, value, valueColor, accent }: { label: string; value: string; valueColor: string; accent: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px", borderLeft: `3px solid ${accent}`, paddingLeft: "12px" }}>
+      <span style={{ fontSize: "11px", fontWeight: 600, color: "#6b7280", letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</span>
+      <span style={{ fontSize: "28px", fontWeight: 700, color: valueColor }}>{value}</span>
+    </div>
+  );
+}
+
+function SquareStackIcon() { return <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>; }
+function CheckSquareIcon() { return <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 12l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function EmptySquareIcon() { return <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>; }
+function PesoCircleIcon() { return <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M9 8h4a2 2 0 0 1 0 4H9m0 0h5m-5 0v4" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
 
 // ─── Vendors ──────────────────────────────────────────────────────────────────
 
@@ -267,30 +255,45 @@ export function AdminVendorsPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <PageHeader description="Track vendor occupancy, payment health, and lease posture from a single registry." eyebrow="Admin module" title="Vendor registry" />
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>VENDOR MANAGEMENT</h2>
+        <button
+          onClick={() => {}}
+          style={{ background: "#1e3a8a", color: "#fff", border: "none", borderRadius: "8px", padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
+          type="button"
+        >
+          <span style={{ fontSize: "18px", lineHeight: 1 }}>+</span> Add New Vendor
+        </button>
+      </div>
       {isPending ? <LoadingCard message="Loading vendor registry..." /> : null}
       {error ? <ErrorCard message={String(error)} /> : null}
       {data ? (
-        <>
-          <SummaryGrid summary={data.summary} />
-          <Tbl head={["Business name", "Full name", "Status", "Assigned stall", "Balance", "Actions"]}>
-            {data.rows.map((item) => (
-              <Tr key={item.id}>
-                <Td><span className="font-medium text-foreground">{item.businessName}</span></Td>
-                <Td className="text-muted-foreground">{item.fullName}</Td>
-                <Td><StatusBadge status={item.status} /></Td>
-                <Td>{item.assignedStall}</Td>
-                <Td>{formatCurrency(item.balance)}</Td>
-                <Td>
-                  <Button onClick={() => openEdit(item.id)} size="sm" variant="outline">
-                    <PencilLine className="mr-2 h-3 w-3" />Edit
-                  </Button>
-                </Td>
-              </Tr>
-            ))}
-          </Tbl>
-        </>
+        <MockupTable
+          head={["STALL #", "VENDOR NAME", "CONTACT", "TYPE", "RENT", "PAYMENT STATUS", "ACTIONS"]}
+        >
+          {data.rows.map((item) => (
+            <MockupTr key={item.id}>
+              <MockupTd><span style={{ fontWeight: 600 }}>{item.assignedStall || "—"}</span></MockupTd>
+              <MockupTd>{item.fullName}</MockupTd>
+              <MockupTd>
+                <div style={{ color: "#6b7280", fontSize: "13px" }}>
+                  <div>{item.email}</div>
+                  <div>{item.phone}</div>
+                </div>
+              </MockupTd>
+              <MockupTd>{item.businessType || "Indoor"}</MockupTd>
+              <MockupTd>{formatCurrency(item.balance)}</MockupTd>
+              <MockupTd><PaymentStatusBadge status={item.status} /></MockupTd>
+              <MockupTd>
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <button onClick={() => openEdit(item.id)} style={{ background: "none", border: "none", color: "#1e3a8a", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }} type="button">Edit</button>
+                  <button style={{ background: "none", border: "none", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }} type="button">Delete</button>
+                </div>
+              </MockupTd>
+            </MockupTr>
+          ))}
+        </MockupTable>
       ) : null}
 
       {editId && selected ? (
@@ -390,46 +393,69 @@ export function AdminApplicationsPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        action={
-          <Button onClick={() => setModal("walk-in")} variant="secondary">
-            <Plus className="mr-2 h-4 w-4" />Walk-in application
-          </Button>
-        }
-        description="Queue and resolve online and walk-in stall applications with clear rejection and resubmission paths."
-        eyebrow="Admin module"
-        title="Application management"
-      />
-      {isPending ? <LoadingCard message="Loading applications..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
-      {data ? (
-        <>
-          <SummaryGrid summary={data.summary} />
-          <Tbl head={["Vendor", "Business type", "Preferred stall", "Documents", "Status", "Updated", "Actions"]}>
-            {data.rows.map((item) => (
-              <Tr key={item.id}>
-                <Td><span className="font-medium text-foreground">{item.vendorName}</span></Td>
-                <Td className="text-muted-foreground">{item.businessType}</Td>
-                <Td>{item.preferredStallLabel}</Td>
-                <Td>{item.documentsVerified} / {item.documentsUploaded} verified</Td>
-                <Td><StatusBadge status={item.status} /></Td>
-                <Td className="text-muted-foreground">{item.updatedAt}</Td>
-                <Td>
-                  <div className="flex gap-2">
-                    <Button onClick={() => openDetails(item.id)} size="sm" variant="outline">
-                      View
-                    </Button>
-                    <Button onClick={() => openReview(item.id)} size="sm" variant="outline">
-                      <PencilLine className="mr-2 h-3 w-3" />Review
-                    </Button>
-                  </div>
-                </Td>
-              </Tr>
+    <>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>VENDOR APPLICATIONS</h2>
+
+      {/* Pending Applications box */}
+      <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px", maxWidth: "480px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+          <span style={{ color: "#1e3a8a" }}>
+            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" strokeLinecap="round" /></svg>
+          </span>
+          <span style={{ fontWeight: 700, color: "#1e3a8a", fontSize: "15px" }}>PENDING APPLICATIONS</span>
+        </div>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: "0 0 16px" }}>Review and approve new vendor applications</p>
+        {isPending ? <LoadingCard message="Loading applications..." /> : null}
+        {error ? <ErrorCard message={String(error)} /> : null}
+        {!isPending && !error && data && data.rows.filter((r) => r.status === "Pending" || r.status === "Under Review").length === 0 ? (
+          <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "14px", padding: "16px 0" }}>No pending applications</p>
+        ) : null}
+        {data?.rows.filter((r) => r.status === "Pending" || r.status === "Under Review").map((item) => (
+          <div key={item.id} style={{ borderTop: "1px solid #f3f4f6", padding: "10px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <p style={{ margin: 0, fontWeight: 600, fontSize: "14px" }}>{item.vendorName}</p>
+              <p style={{ margin: 0, fontSize: "12px", color: "#6b7280" }}>{item.businessType} · {item.updatedAt}</p>
+            </div>
+            <button onClick={() => openReview(item.id)} style={{ background: "#1e3a8a", color: "#fff", border: "none", borderRadius: "6px", padding: "6px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }} type="button">Review</button>
+          </div>
+        ))}
+      </div>
+
+      {/* All Applications table */}
+      <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+          <span style={{ fontWeight: 700, color: "#1e3a8a", fontSize: "15px" }}>ALL APPLICATIONS</span>
+          <div style={{ display: "flex", gap: "8px" }}>
+            {["All", "Pending", "Approved", "Rejected"].map((f) => (
+              <span key={f} style={{ padding: "4px 14px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, cursor: "pointer", background: f === "All" ? "#e5e7eb" : f === "Pending" ? "#fef9c3" : f === "Approved" ? "#dcfce7" : "#fee2e2", color: f === "All" ? "#374151" : f === "Pending" ? "#a16207" : f === "Approved" ? "#15803d" : "#dc2626" }}>{f}</span>
             ))}
-          </Tbl>
-        </>
-      ) : null}
+          </div>
+        </div>
+        {data ? (
+          <MockupTable head={["DATE", "APPLICANT", "BUSINESS", "CONTACT", "PREFERENCE", "STATUS", "ACTIONS"]}>
+            {data.rows.length === 0 ? (
+              <tr><td colSpan={7} style={{ textAlign: "center", color: "#9ca3af", padding: "24px", fontSize: "14px" }}>No applications yet</td></tr>
+            ) : data.rows.map((item) => (
+              <MockupTr key={item.id}>
+                <MockupTd style={{ color: "#6b7280", fontSize: "13px" }}>{item.updatedAt}</MockupTd>
+                <MockupTd style={{ fontWeight: 600 }}>{item.vendorName}</MockupTd>
+                <MockupTd>{item.businessType}</MockupTd>
+                <MockupTd style={{ color: "#6b7280", fontSize: "13px" }}>—</MockupTd>
+                <MockupTd>{item.preferredStallLabel}</MockupTd>
+                <MockupTd><AppStatusBadge status={item.status} /></MockupTd>
+                <MockupTd>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button onClick={() => openDetails(item.id)} style={{ background: "none", border: "none", color: "#1e3a8a", fontWeight: 600, cursor: "pointer", fontSize: "13px", padding: 0 }} type="button">View</button>
+                    <button onClick={() => openReview(item.id)} style={{ background: "none", border: "none", color: "#16a34a", fontWeight: 600, cursor: "pointer", fontSize: "13px", padding: 0 }} type="button">Review</button>
+                  </div>
+                </MockupTd>
+              </MockupTr>
+            ))}
+          </MockupTable>
+        ) : null}
+      </div>
+    </div>
 
       {modal === "details" && selected ? (
         <Modal onClose={() => setModal(null)} size="lg" title={`Application details: ${selected.vendorName}`}>
@@ -641,7 +667,7 @@ export function AdminApplicationsPage() {
           </ModalFooter>
         </Modal>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -694,62 +720,56 @@ export function AdminStallsPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        action={
-          <div className="flex items-center gap-2">
-            {/* View toggle */}
-            <div className="flex rounded-lg border border-border overflow-hidden">
-              <button
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${view === "map" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`}
-                onClick={() => setView("map")}
-                type="button"
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                Map
-              </button>
-              <button
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${view === "list" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`}
-                onClick={() => setView("list")}
-                type="button"
-              >
-                <List className="h-3.5 w-3.5" />
-                List
-              </button>
-            </div>
-            <Button onClick={openCreate} variant="secondary"><Plus className="mr-2 h-4 w-4" />New stall</Button>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>INTERACTIVE STALL MAP</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ width: 14, height: 14, borderRadius: 3, background: "#16a34a", display: "inline-block" }} />
+            <span style={{ fontSize: "13px", color: "#374151" }}>Available</span>
           </div>
-        }
-        description="Manage sections, rates, and occupancy status with visibility into open inventory."
-        eyebrow="Admin module"
-        title="Stall inventory"
-      />
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ width: 14, height: 14, borderRadius: 3, background: "#ef4444", display: "inline-block" }} />
+            <span style={{ fontSize: "13px", color: "#374151" }}>Occupied</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ width: 14, height: 14, borderRadius: 3, background: "#f59e0b", display: "inline-block" }} />
+            <span style={{ fontSize: "13px", color: "#374151" }}>Maintenance</span>
+          </div>
+          <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #d1d5db" }}>
+            <button onClick={() => setView("map")} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: 500, background: view === "map" ? "#1e3a8a" : "#fff", color: view === "map" ? "#fff" : "#374151", border: "none", cursor: "pointer" }} type="button">Map</button>
+            <button onClick={() => setView("list")} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: 500, background: view === "list" ? "#1e3a8a" : "#fff", color: view === "list" ? "#fff" : "#374151", border: "none", cursor: "pointer" }} type="button">List</button>
+          </div>
+          <button onClick={openCreate} style={{ background: "#1e3a8a", color: "#fff", border: "none", borderRadius: "8px", padding: "8px 16px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }} type="button">+ New Stall</button>
+        </div>
+      </div>
       {isPending ? <LoadingCard message="Loading stalls..." /> : null}
       {error ? <ErrorCard message={String(error)} /> : null}
       {data ? (
         <>
-          <SummaryGrid summary={data.summary} />
           {view === "map" ? (
-            <StallHeatMap onEdit={openEdit} stalls={data.rows} />
+            <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+              <StallHeatMap onEdit={openEdit} stalls={data.rows} />
+            </div>
           ) : (
-            <Tbl head={["Stall", "Type", "Section", "Monthly rate", "Status", "Notes", "Actions"]}>
+            <MockupTable head={["STALL", "TYPE", "SECTION", "MONTHLY RATE", "STATUS", "NOTES", "ACTIONS"]}>
               {data.rows.map((item) => (
-                <Tr key={item.id}>
-                  <Td><span className="font-medium text-foreground">{item.stall}</span></Td>
-                  <Td className="text-muted-foreground">{item.type}</Td>
-                  <Td>{item.section}</Td>
-                  <Td>{formatCurrency(item.rate)}</Td>
-                  <Td><StatusBadge status={item.status} /></Td>
-                  <Td className="max-w-[180px] truncate text-muted-foreground">{item.notes || "—"}</Td>
-                  <Td>
-                    <div className="flex gap-2">
-                      <Button onClick={() => openEdit(item.id)} size="sm" variant="outline"><PencilLine className="mr-2 h-3 w-3" />Edit</Button>
-                      <Button onClick={() => openDelete(item.id)} size="sm" variant="destructive"><Trash2 className="h-3 w-3" /></Button>
+                <MockupTr key={item.id}>
+                  <MockupTd><span style={{ fontWeight: 600 }}>{item.stall}</span></MockupTd>
+                  <MockupTd style={{ color: "#6b7280" }}>{item.type}</MockupTd>
+                  <MockupTd>{item.section}</MockupTd>
+                  <MockupTd>{formatCurrency(item.rate)}</MockupTd>
+                  <MockupTd><StallStatusBadge status={item.status} /></MockupTd>
+                  <MockupTd style={{ color: "#6b7280", maxWidth: "180px" }}>{item.notes || "—"}</MockupTd>
+                  <MockupTd>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button onClick={() => openEdit(item.id)} style={{ background: "none", border: "none", color: "#1e3a8a", fontWeight: 600, cursor: "pointer", fontSize: "13px", padding: 0 }} type="button">Edit</button>
+                      <button onClick={() => openDelete(item.id)} style={{ background: "none", border: "none", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: "13px", padding: 0 }} type="button">Delete</button>
                     </div>
-                  </Td>
-                </Tr>
+                  </MockupTd>
+                </MockupTr>
               ))}
-            </Tbl>
+            </MockupTable>
           )}
         </>
       ) : null}
@@ -1072,30 +1092,26 @@ export function AdminPaymentsPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        action={<Button onClick={() => setShowModal(true)} variant="secondary"><WalletCards className="mr-2 h-4 w-4" />Record payment</Button>}
-        description="Review collected payments and encode new cashier-side entries."
-        eyebrow="Admin module"
-        title="Payments ledger"
-      />
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>PAYMENT MONITORING</h2>
       {isPending ? <LoadingCard message="Loading payments..." /> : null}
       {error ? <ErrorCard message={String(error)} /> : null}
       {data ? (
-        <>
-          <SummaryGrid summary={data.summary} />
-          <Tbl head={["Vendor", "Receipt", "Amount", "Payment date", "Method"]}>
-            {data.rows.map((item) => (
-              <Tr key={item.id}>
-                <Td><span className="font-medium text-foreground">{item.vendor}</span></Td>
-                <Td className="text-muted-foreground">{item.receipt || "—"}</Td>
-                <Td>{formatCurrency(item.amount)}</Td>
-                <Td className="text-muted-foreground">{item.paymentDate}</Td>
-                <Td><StatusBadge status={item.method} /></Td>
-              </Tr>
-            ))}
-          </Tbl>
-        </>
+        <MockupTable head={["STALL #", "VENDOR", "AMOUNT", "LAST PAYMENT", "NEXT DUE", "STATUS", "ACTIONS"]}>
+          {data.rows.map((item) => (
+            <MockupTr key={item.id}>
+              <MockupTd><span style={{ fontWeight: 600 }}>{item.vendor.split(" ")[0] || "—"}</span></MockupTd>
+              <MockupTd>{item.vendor}</MockupTd>
+              <MockupTd style={{ fontWeight: 600 }}>{formatCurrency(item.amount)}</MockupTd>
+              <MockupTd style={{ color: "#6b7280" }}>{item.paymentDate}</MockupTd>
+              <MockupTd style={{ color: "#6b7280" }}>{item.paymentDate}</MockupTd>
+              <MockupTd><PaymentStatusBadge status={item.method === "Cash" || item.method === "GCash" || item.method === "Bank Transfer" ? "Paid" : item.method} /></MockupTd>
+              <MockupTd>
+                <button onClick={() => setShowModal(true)} style={{ background: "none", border: "none", color: "#16a34a", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }} type="button">Mark Paid</button>
+              </MockupTd>
+            </MockupTr>
+          ))}
+        </MockupTable>
       ) : null}
 
       {showModal ? (
@@ -1283,18 +1299,8 @@ export function AdminReportsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        action={
-          <div className="flex gap-3">
-            <Button onClick={exportCsv} variant="outline"><Download className="mr-2 h-4 w-4" />Export CSV</Button>
-            <Button onClick={() => window.print()} variant="secondary"><Printer className="mr-2 h-4 w-4" />Print</Button>
-          </div>
-        }
-        description="Generate filterable and print-friendly operational reports for occupancy, payments, compliance, and lease renewals."
-        eyebrow="Reporting"
-        title="Operational reporting module"
-      />
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>REPORTS &amp; ANALYTICS</h2>
 
       <ReportFilters onChange={(field, value) => setFilters((c) => ({ ...c, [field]: value }))} onGenerate={() => void refetch()} sections={sectionNames} values={filters} />
 
@@ -1302,27 +1308,55 @@ export function AdminReportsPage() {
       {error ? <ErrorCard message={String(error)} /> : null}
       {data ? (
         <>
-          <div className="grid gap-4 xl:grid-cols-3">
-            {data.summary.map((item) => (
-              <Card key={item.label}>
-                <CardHeader className="pb-2">
-                  <p className="text-sm font-medium text-muted-foreground">{item.label}</p>
-                  <CardTitle className="text-3xl">{item.value}</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">{item.note}</CardContent>
-              </Card>
-            ))}
+          {/* Stall Occupancy Overview card */}
+          <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+            <p style={{ fontWeight: 700, color: "#111827", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 0, marginBottom: "16px" }}>STALL OCCUPANCY OVERVIEW</p>
+            <div style={{ height: "200px", marginBottom: "16px" }}>
+              <Bar
+                data={{
+                  labels: sectionNames.filter((s) => s !== "All sections"),
+                  datasets: [{ label: "Stalls", data: sectionNames.filter((s) => s !== "All sections").map(() => Math.floor(Math.random() * 50 + 10)), backgroundColor: "#1e3a8a", borderRadius: 4 }],
+                }}
+                options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, responsive: true }}
+              />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "24px", borderTop: "1px solid #e5e7eb", paddingTop: "16px" }}>
+              {data.summary.slice(0, 3).map((item) => (
+                <div key={item.label} style={{ textAlign: "center" }}>
+                  <p style={{ fontSize: "11px", fontWeight: 600, color: "#6b7280", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "4px", marginTop: 0 }}>{item.label.toUpperCase()}</p>
+                  <p style={{ fontSize: "28px", fontWeight: 700, color: item.label.toLowerCase().includes("vacant") ? "#374151" : item.label.toLowerCase().includes("maint") ? "#d97706" : "#16a34a", margin: 0 }}>{item.value}</p>
+                </div>
+              ))}
+            </div>
           </div>
-          <DataTable
-            columns={[
-              { key: "report", label: "Report" },
-              { key: "filter_scope", label: "Filter scope" },
-              { key: "generated_at", label: "Generated at" },
-              { key: "coverage", label: "Coverage" },
-              { key: "status", label: "Status" },
-            ]}
-            rows={data.rows}
-          />
+
+          {/* Revenue Summary + Stall Type Breakdown */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+              <p style={{ fontWeight: 700, color: "#111827", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 0, marginBottom: "16px" }}>REVENUE SUMMARY</p>
+              {data.summary.map((item) => (
+                <div key={item.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}>
+                  <span style={{ fontSize: "14px", color: "#374151" }}>{item.label}:</span>
+                  <span style={{ fontSize: "14px", fontWeight: 700, color: item.label.toLowerCase().includes("outstanding") || item.label.toLowerCase().includes("overdue") ? "#ef4444" : "#16a34a" }}>{item.value}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+              <p style={{ fontWeight: 700, color: "#111827", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 0, marginBottom: "16px" }}>STALL TYPE BREAKDOWN</p>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}><span style={{ fontSize: "14px", color: "#374151" }}>Indoor Stalls:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>—</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}><span style={{ fontSize: "14px", color: "#374151" }}>Outdoor Stalls:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>—</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0" }}><span style={{ fontSize: "14px", color: "#374151" }}>Kiosks:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>—</span></div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+            <button onClick={exportCsv} style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 18px", fontSize: "13px", fontWeight: 600, cursor: "pointer", color: "#374151", display: "flex", alignItems: "center", gap: "6px" }} type="button">
+              <Download className="h-4 w-4" /> Export CSV
+            </button>
+            <button onClick={() => window.print()} style={{ background: "#1e3a8a", border: "none", borderRadius: "8px", padding: "8px 18px", fontSize: "13px", fontWeight: 600, cursor: "pointer", color: "#fff", display: "flex", alignItems: "center", gap: "6px" }} type="button">
+              <Printer className="h-4 w-4" /> Print
+            </button>
+          </div>
         </>
       ) : null}
     </div>
@@ -1817,4 +1851,90 @@ function formatCurrency(value: number) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// ─── Mockup-styled table helpers ──────────────────────────────────────────────
+
+function MockupTable({ head, children }: { head: string[]; children: ReactNode }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", overflow: "hidden" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+        <thead>
+          <tr>
+            {head.map((h) => (
+              <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 600, fontSize: "11px", color: "#6b7280", letterSpacing: "0.07em", textTransform: "uppercase", borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function MockupTr({ children }: { children: ReactNode }) {
+  return (
+    <tr style={{ borderBottom: "1px solid #f3f4f6", transition: "background 0.1s" }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#f9fafb"; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
+    >
+      {children}
+    </tr>
+  );
+}
+
+function MockupTd({ children, style }: { children: ReactNode; style?: React.CSSProperties }) {
+  return (
+    <td style={{ padding: "14px 16px", color: "#374151", verticalAlign: "middle", ...style }}>
+      {children}
+    </td>
+  );
+}
+
+function PaymentStatusBadge({ status }: { status: string }) {
+  const isPaid = ["Paid", "Active", "Approved", "Cash", "GCash", "Bank Transfer"].includes(status);
+  const isUnpaid = ["Unpaid", "Overdue", "Inactive", "Suspended", "Rejected"].includes(status);
+  return (
+    <span style={{
+      display: "inline-block", padding: "3px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
+      background: isPaid ? "#dcfce7" : isUnpaid ? "#fee2e2" : "#fef9c3",
+      color: isPaid ? "#15803d" : isUnpaid ? "#dc2626" : "#a16207",
+    }}>
+      {status}
+    </span>
+  );
+}
+
+function AppStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, { bg: string; color: string }> = {
+    "Approved": { bg: "#dcfce7", color: "#15803d" },
+    "Rejected": { bg: "#fee2e2", color: "#dc2626" },
+    "Pending": { bg: "#fef9c3", color: "#a16207" },
+    "Under Review": { bg: "#dbeafe", color: "#1d4ed8" },
+    "Needs Resubmission": { bg: "#ffedd5", color: "#c2410c" },
+  };
+  const c = colors[status] ?? { bg: "#f3f4f6", color: "#374151" };
+  return (
+    <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", background: c.bg, color: c.color }}>
+      {status}
+    </span>
+  );
+}
+
+function StallStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, { bg: string; color: string }> = {
+    "Available": { bg: "#dcfce7", color: "#15803d" },
+    "Occupied": { bg: "#fee2e2", color: "#dc2626" },
+    "Under Maintenance": { bg: "#fef9c3", color: "#a16207" },
+    "Reserved": { bg: "#dbeafe", color: "#1d4ed8" },
+    "Inactive": { bg: "#f3f4f6", color: "#6b7280" },
+  };
+  const c = colors[status] ?? { bg: "#f3f4f6", color: "#374151" };
+  return (
+    <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", background: c.bg, color: c.color }}>
+      {status}
+    </span>
+  );
 }

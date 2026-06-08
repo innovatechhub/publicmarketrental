@@ -45,6 +45,7 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 8000;
 
 function requireSupabase() {
   if (!supabase) {
@@ -72,25 +73,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      try {
+        await withTimeout(
+          (async () => {
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
 
-      if (!isMounted) {
-        return;
-      }
+            if (!isMounted) {
+              return;
+            }
 
-      if (session?.user) {
-        try {
-          setUser(await resolveAppUserFromAuth(session.user));
-        } catch {
+            if (session?.user) {
+              try {
+                setUser(await resolveAppUserFromAuth(session.user));
+              } catch {
+                setUser(null);
+              }
+            } else {
+              setUser(null);
+            }
+          })(),
+          AUTH_BOOTSTRAP_TIMEOUT_MS,
+        );
+      } catch {
+        if (isMounted) {
           setUser(null);
         }
-      } else {
-        setUser(null);
+      } finally {
+        if (isMounted) {
+          setIsBootstrapping(false);
+        }
       }
-
-      setIsBootstrapping(false);
     };
 
     void bootstrap();
@@ -329,6 +343,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number) {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      window.setTimeout(() => reject(new Error("Authentication bootstrap timed out.")), ms);
+    }),
+  ]);
 }
 
 export function useAuth() {

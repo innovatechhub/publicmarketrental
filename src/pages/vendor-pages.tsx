@@ -123,175 +123,105 @@ export function VendorDashboardPage() {
     (sum, item) => sum + Math.max(item.amountDue - item.amountPaid, 0),
     0,
   );
-  const verifiedDocuments = documents.filter((item) => item.status === "Verified").length;
-  const unreadNotifications = notifications.filter((item) => !item.read).length;
-  const latestApplication = applications[0];
   const nextDueBilling = orderedBillings.find((item) => item.amountPaid < item.amountDue);
-  const complianceSummary = buildComplianceSummary(documents);
+  const lastPaidBilling = [...billings]
+    .filter((item) => item.amountPaid > 0)
+    .sort((left, right) => new Date(right.paymentDate ?? right.dueDate).getTime() - new Date(left.paymentDate ?? left.dueDate).getTime())[0];
 
   if (!isReady) {
     return <LoadingCard message="Loading vendor workspace..." />;
   }
 
-  const metrics: MetricCardData[] = [
-    {
-      label: "Latest application",
-      value: latestApplication?.status ?? "No draft",
-      delta: latestApplication ? `Updated ${latestApplication.updatedAt}` : "Start your first stall request",
-      tone: latestApplication?.status === "Assigned" ? "positive" : "warning",
-    },
-    {
-      label: "Assigned stall",
-      value: stall.stall,
-      delta: `${stall.section} section`,
-    },
-    {
-      label: "Current balance",
-      value: formatCurrency(currentBalance),
-      delta: nextDueBilling ? `Next due ${nextDueBilling.dueDate}` : "No unpaid billing record",
-      tone: currentBalance > 0 ? "warning" : "positive",
-    },
-    {
-      label: "Compliance status",
-      value: `${verifiedDocuments} / ${documents.length || 0}`,
-      delta: `${unreadNotifications} unread notifications`,
-      tone: complianceSummary.pending > 0 ? "warning" : "positive",
-    },
-  ];
-
   return (
-    <div className="space-y-6">
-      <PageHeader
-        action={
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={() => navigate("/vendor/applications")} variant="secondary">
-              <FilePlus2 className="mr-2 h-4 w-4" />
-              Continue application
-            </Button>
-            <Button onClick={() => navigate("/vendor/stall")} variant="outline">
-              <Wrench className="mr-2 h-4 w-4" />
-              Stall support
-            </Button>
-          </div>
-        }
-        description="Monitor your active applications, compliance files, billing account, and stall actions from one vendor workspace."
-        eyebrow="Vendor portal"
-        title={`Welcome back, ${user?.name?.split(" ")[0] ?? "Vendor"}`}
-      />
-
-      <div className="grid gap-4 xl:grid-cols-4">
-        {metrics.map((metric) => (
-          <StatCard key={metric.label} metric={metric} />
-        ))}
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+            {user?.businessName ?? "Vendor Account"}
+          </p>
+          <h2 className="mt-2 text-2xl font-bold uppercase tracking-[0.08em] text-[#00966f]">
+            My Stall Information
+          </h2>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={() => navigate("/vendor/applications")} variant="secondary">
+            <FilePlus2 className="mr-2 h-4 w-4" />
+            Applications
+          </Button>
+          <Button onClick={() => navigate("/vendor/stall")} variant="outline">
+            <Wrench className="mr-2 h-4 w-4" />
+            Stall Support
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <ChartCard
-          description="Paid amount posted per billing cycle."
-          title="Payment history"
-        >
-          <Line
-            data={{
-              labels: orderedBillings.map((item) => item.billingMonth),
-              datasets: [
-                {
-                  label: "Amount paid",
-                  data: orderedBillings.map((item) => item.amountPaid),
-                  borderColor: "#0f766e",
-                  backgroundColor: "rgba(15,118,110,0.14)",
-                  tension: 0.35,
-                },
-                {
-                  label: "Amount due",
-                  data: orderedBillings.map((item) => item.amountDue),
-                  borderColor: "#d97706",
-                  backgroundColor: "rgba(217,119,6,0.12)",
-                  tension: 0.35,
-                },
-              ],
-            }}
-            options={{
-              maintainAspectRatio: false,
-              plugins: { legend: { position: "bottom" } },
-              responsive: true,
-            }}
-          />
-        </ChartCard>
-
-        <ChartCard
-          description="Verification breakdown for your current document set."
-          title="Compliance checklist"
-        >
-          <Doughnut
-            data={{
-              labels: ["Verified", "Pending", "Needs Resubmission"],
-              datasets: [
-                {
-                  data: [
-                    complianceSummary.verified,
-                    complianceSummary.pending,
-                    complianceSummary.resubmission,
-                  ],
-                  backgroundColor: ["#15803D", "#D97706", "#B91C1C"],
-                  borderWidth: 0,
-                },
-              ],
-            }}
-            options={{
-              maintainAspectRatio: false,
-              plugins: { legend: { position: "bottom" } },
-            }}
-          />
-        </ChartCard>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="border-l-4 border-l-[#00966f]">
           <CardHeader>
-            <CardTitle>Assigned stall details</CardTitle>
-            <CardDescription>Lease location, rate, and renewal posture for the current assignment.</CardDescription>
+            <CardTitle className="text-sm uppercase tracking-wide text-slate-500">Stall Details</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <InfoItem label="Stall" value={stall.stall} />
-            <InfoItem label="Section" value={stall.section} />
-            <InfoItem label="Type" value={stall.type} />
-            <InfoItem label="Monthly rate" value={stall.rate} />
-            <InfoItem label="Lease start" value={stall.leaseStart} />
-            <InfoItem
-              label="Renewal"
-              value={
-                stall.renewalRequestedAt
-                  ? `${stall.renewalStatus} on ${stall.renewalRequestedAt}`
-                  : stall.renewalStatus
-              }
-            />
+          <CardContent className="space-y-4">
+            <PlainInfo label="Stall Number" value={stall.stall} valueClassName="text-2xl text-[#00966f]" />
+            <PlainInfo label="Stall Type" value={stall.type} />
+            <PlainInfo label="Monthly Rent" value={stall.rate} />
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-l-4 border-l-[#294cc2]">
           <CardHeader>
-            <CardTitle>Latest notifications</CardTitle>
-            <CardDescription>Unread alerts and recent activity tied to your vendor account.</CardDescription>
+            <CardTitle className="text-sm uppercase tracking-wide text-slate-500">Payment Status</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div>
+              <p className="text-xs text-slate-500">Current Status</p>
+              <span className="mt-2 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-[#00966f]">
+                {currentBalance > 0 ? "Balance Due" : "Paid"}
+              </span>
+            </div>
+            <PlainInfo
+              label="Last Payment"
+              value={lastPaidBilling?.paymentDate ?? lastPaidBilling?.billingMonth ?? "-"}
+            />
+            <PlainInfo label="Next Due Date" value={nextDueBilling?.dueDate ?? "-"} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg uppercase tracking-wide text-[#00966f]">Lease Information</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-6 md:grid-cols-2">
+          <PlainInfo label="Lease Start Date" value={stall.leaseStart} />
+          <PlainInfo label="Lease End Date" value={stall.leaseEnd} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg uppercase tracking-wide text-[#00966f]">Contact Information</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <PlainInfo label="Email" value={user?.email ?? "-"} />
+          <PlainInfo label="Phone" value={user?.phone ?? "-"} />
+        </CardContent>
+      </Card>
+
+      {notifications.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg uppercase tracking-wide text-[#00966f]">Latest Notices</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-3">
             {notifications.slice(0, 3).map((item) => (
-              <div
-                className="rounded-2xl border border-border/70 bg-background/70 p-4"
-                key={item.id}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-foreground">{item.title}</p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.detail}</p>
-                  </div>
-                  {!item.read ? <Badge variant="warning">Unread</Badge> : null}
-                </div>
-                <p className="mt-3 text-xs uppercase tracking-[0.18em] text-primary">{item.timestamp}</p>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4" key={item.id}>
+                <p className="font-bold text-slate-900">{item.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>
               </div>
             ))}
           </CardContent>
         </Card>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -1296,16 +1226,16 @@ function ApplicationModal({
         onClick={onClose}
         type="button"
       />
-      <div className="relative z-10 w-full max-w-4xl">
+      <div className="relative z-10 w-full max-w-[596px]">
         <button
           aria-label="Close application form"
-          className="absolute right-5 top-5 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-muted-foreground transition hover:text-foreground"
+          className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-md bg-white/15 text-white transition hover:bg-white/25"
           onClick={onClose}
           type="button"
         >
           <X className="h-4 w-4" />
         </button>
-        <div className="max-h-[90vh] overflow-y-auto rounded-[1.5rem]">
+        <div className="max-h-[82vh] overflow-y-auto rounded-lg bg-white shadow-[0_22px_55px_-30px_rgba(15,23,42,0.5)]">
           {children}
         </div>
       </div>
@@ -1546,9 +1476,26 @@ function EmptyState({ message }: { message: string }) {
 
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+    <div className="rounded-md border border-border bg-background p-4">
       <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
       <p className="mt-2 text-base font-medium leading-7 text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function PlainInfo({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-1 text-lg font-semibold text-slate-900 ${valueClassName ?? ""}`}>{value}</p>
     </div>
   );
 }
@@ -1661,4 +1608,3 @@ function formatDateLabel(value: string) {
     year: "numeric",
   }).format(date);
 }
-
