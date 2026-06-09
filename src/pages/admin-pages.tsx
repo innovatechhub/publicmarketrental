@@ -44,6 +44,7 @@ import {
   createBilling,
   createPayment,
   createWalkInApplication,
+  deleteVendor,
   deleteStall,
   fetchAdminDashboardSnapshot,
   fetchApplicationDocuments,
@@ -156,7 +157,7 @@ export function AdminDashboardPage() {
       </h2>
 
       {isPending ? <LoadingCard message="Loading admin dashboard..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
 
       {!isPending && !error && data ? (
         <>
@@ -231,6 +232,7 @@ export function AdminVendorsPage() {
   const { user } = useAuth();
   const { data, isPending, error } = useQuery({ queryKey: queryKeys.vendors, queryFn: fetchVendorRegistry, enabled: isSupabaseConfigured });
   const [editId, setEditId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ fullName: "", email: "", phone: "", businessName: "", businessType: "", status: "Active" });
 
   const openEdit = (id: string) => {
@@ -241,17 +243,37 @@ export function AdminVendorsPage() {
   };
 
   const selected = data?.rows.find((r) => r.id === editId);
+  const selectedForDelete = data?.rows.find((r) => r.id === deleteId);
 
   const saveVendor = useMutation({
     mutationFn: async () => updateVendorRecord(user!.id, { profileId: selected!.profileId, vendorId: selected!.id, ...form }),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.vendors }); toast.success("Vendor record updated."); setEditId(null); },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const notifyVendor = useMutation({
     mutationFn: async () => createAdminNotification(user!.id, { userId: selected!.profileId, title: "Account update", message: `${form.businessName} was updated by the market office.`, type: "update", link: "/vendor/profile" }),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.notifications }); toast.success("Vendor notification sent."); },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const removeVendor = useMutation({
+    mutationFn: async () => deleteVendor(user!.id, deleteId!),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.vendors }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.stalls }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.assignments }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.leases }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.billings }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.payments }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.violations }),
+      ]);
+      toast.success("Vendor deleted.");
+      setDeleteId(null);
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
@@ -267,7 +289,7 @@ export function AdminVendorsPage() {
         </button>
       </div>
       {isPending ? <LoadingCard message="Loading vendor registry..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <MockupTable
           head={["STALL #", "VENDOR NAME", "CONTACT", "TYPE", "RENT", "PAYMENT STATUS", "ACTIONS"]}
@@ -288,7 +310,7 @@ export function AdminVendorsPage() {
               <MockupTd>
                 <div style={{ display: "flex", gap: "12px" }}>
                   <button onClick={() => openEdit(item.id)} style={{ background: "none", border: "none", color: "#1e3a8a", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }} type="button">Edit</button>
-                  <button style={{ background: "none", border: "none", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }} type="button">Delete</button>
+                  <button onClick={() => setDeleteId(item.id)} style={{ background: "none", border: "none", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }} type="button">Delete</button>
                 </div>
               </MockupTd>
             </MockupTr>
@@ -316,6 +338,16 @@ export function AdminVendorsPage() {
             <Button onClick={() => setEditId(null)} variant="ghost">Cancel</Button>
           </ModalFooter>
         </Modal>
+      ) : null}
+
+      {deleteId && selectedForDelete ? (
+        <ConfirmDeleteModal
+          isPending={removeVendor.isPending}
+          message={`This will delete ${selectedForDelete.fullName}'s vendor record and related vendor records such as applications, leases, billings, payments, and violations.`}
+          onClose={() => setDeleteId(null)}
+          onConfirm={() => removeVendor.mutate()}
+          title="Delete vendor"
+        />
       ) : null}
     </div>
   );
@@ -365,7 +397,7 @@ export function AdminApplicationsPage() {
       toast.success("Application review updated.");
       setModal(null);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const verifyDocument = useMutation({
@@ -378,7 +410,7 @@ export function AdminApplicationsPage() {
       ]);
       toast.success("Document verification updated.");
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const createWalkIn = useMutation({
@@ -389,7 +421,7 @@ export function AdminApplicationsPage() {
       setModal(null);
       setWalkIn({ vendorId: "", businessType: "", preferredSection: "Dry Goods", preferredStallType: "General Merchandise", remarks: "" });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
@@ -407,7 +439,7 @@ export function AdminApplicationsPage() {
         </div>
         <p style={{ fontSize: "13px", color: "#6b7280", margin: "0 0 16px" }}>Review and approve new vendor applications</p>
         {isPending ? <LoadingCard message="Loading applications..." /> : null}
-        {error ? <ErrorCard message={String(error)} /> : null}
+        {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
         {!isPending && !error && data && data.rows.filter((r) => r.status === "Pending" || r.status === "Under Review").length === 0 ? (
           <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "14px", padding: "16px 0" }}>No pending applications</p>
         ) : null}
@@ -706,7 +738,7 @@ export function AdminStallsPage() {
       toast.success("Stall saved.");
       setModal(null);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const remove = useMutation({
@@ -716,26 +748,14 @@ export function AdminStallsPage() {
       toast.success("Stall deleted.");
       setModal(null);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>INTERACTIVE STALL MAP</h2>
+        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>GROUND FLOOR PLAN</h2>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ width: 14, height: 14, borderRadius: 3, background: "#16a34a", display: "inline-block" }} />
-            <span style={{ fontSize: "13px", color: "#374151" }}>Available</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ width: 14, height: 14, borderRadius: 3, background: "#ef4444", display: "inline-block" }} />
-            <span style={{ fontSize: "13px", color: "#374151" }}>Occupied</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ width: 14, height: 14, borderRadius: 3, background: "#f59e0b", display: "inline-block" }} />
-            <span style={{ fontSize: "13px", color: "#374151" }}>Maintenance</span>
-          </div>
           <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #d1d5db" }}>
             <button onClick={() => setView("map")} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: 500, background: view === "map" ? "#1e3a8a" : "#fff", color: view === "map" ? "#fff" : "#374151", border: "none", cursor: "pointer" }} type="button">Map</button>
             <button onClick={() => setView("list")} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: 500, background: view === "list" ? "#1e3a8a" : "#fff", color: view === "list" ? "#fff" : "#374151", border: "none", cursor: "pointer" }} type="button">List</button>
@@ -744,7 +764,7 @@ export function AdminStallsPage() {
         </div>
       </div>
       {isPending ? <LoadingCard message="Loading stalls..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <>
           {view === "map" ? (
@@ -837,7 +857,7 @@ export function AdminAssignmentsPage() {
       setShowModal(false);
       setForm({ applicationId: "", stallId: "", startDate: todayIso(), endDate: "", monthlyRate: "1250" });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
@@ -849,7 +869,7 @@ export function AdminAssignmentsPage() {
         title="Stall assignments"
       />
       {isPending ? <LoadingCard message="Loading assignments..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       <Tbl head={["Vendor", "Stall", "Start date", "End date", "Status"]}>
         {assignments.map((item) => (
           <Tr key={item.leaseId}>
@@ -918,14 +938,14 @@ export function AdminLeasesPage() {
       toast.success("Lease updated.");
       setEditId(null);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
     <div className="space-y-6">
       <PageHeader description="Monitor active contracts, renewal states, and lease lifecycle changes." eyebrow="Admin module" title="Lease and renewal tracker" />
       {isPending ? <LoadingCard message="Loading leases..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <>
           <SummaryGrid summary={data.summary} />
@@ -1010,7 +1030,7 @@ export function AdminBillingPage() {
       toast.success(editId ? "Billing updated." : "Billing created.");
       setShowModal(false);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
@@ -1022,7 +1042,7 @@ export function AdminBillingPage() {
         title="Billing monitor"
       />
       {isPending ? <LoadingCard message="Loading billing records..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <>
           <SummaryGrid summary={data.summary} />
@@ -1088,14 +1108,14 @@ export function AdminPaymentsPage() {
       setShowModal(false);
       setForm({ billingId: "", amount: "0", paymentDate: todayIso(), method: "Cash", receiptNumber: "", notes: "" });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>PAYMENT MONITORING</h2>
       {isPending ? <LoadingCard message="Loading payments..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <MockupTable head={["STALL #", "VENDOR", "AMOUNT", "LAST PAYMENT", "NEXT DUE", "STATUS", "ACTIONS"]}>
           {data.rows.map((item) => (
@@ -1178,7 +1198,7 @@ export function AdminViolationsPage() {
       toast.success(editId ? "Violation updated." : "Violation recorded.");
       setModal(null);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const remove = useMutation({
@@ -1188,7 +1208,7 @@ export function AdminViolationsPage() {
       toast.success("Violation deleted.");
       setModal(null);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
@@ -1200,7 +1220,7 @@ export function AdminViolationsPage() {
         title="Violation tracking"
       />
       {isPending ? <LoadingCard message="Loading violations..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <>
           <SummaryGrid summary={data.summary} />
@@ -1305,7 +1325,7 @@ export function AdminReportsPage() {
       <ReportFilters onChange={(field, value) => setFilters((c) => ({ ...c, [field]: value }))} onGenerate={() => void refetch()} sections={sectionNames} values={filters} />
 
       {isPending ? <LoadingCard message="Loading reports..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <>
           {/* Stall Occupancy Overview card */}
@@ -1381,7 +1401,7 @@ export function AdminNotificationsPage() {
       setShowModal(false);
       setForm({ userId: "", title: "", message: "", type: "info", link: "" });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
@@ -1393,7 +1413,7 @@ export function AdminNotificationsPage() {
         title="Notification center"
       />
       {isPending ? <LoadingCard message="Loading notifications..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       <Tbl head={["Recipient", "Title", "Message", "Status", "Actions"]}>
         {(data ?? []).map((item) => (
           <Tr key={item.id}>
@@ -1472,14 +1492,14 @@ export function AdminStaffPage() {
       toast.success("Staff record updated.");
       setEditId(null);
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
     <div className="space-y-6">
       <PageHeader description="Manage existing LGU staff records and route-level roles." eyebrow="Admin module" title="Staff management" />
       {isPending ? <LoadingCard message="Loading staff..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <>
           <SummaryGrid summary={data.summary} />
@@ -1558,20 +1578,20 @@ export function AdminSettingsPage() {
   const saveBilling = useMutation({
     mutationFn: async () => saveSystemSetting(user!.id, "billing_schedule", { billingDay: Number(billing.billingDay), penaltyAmount: Number(billing.penaltyAmount), reminderDaysBefore: Number(billing.reminderDaysBefore) }),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.settings }); toast.success("Billing schedule saved."); },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const saveTemplates = useMutation({
     mutationFn: async () => saveSystemSetting(user!.id, "notification_templates", templates),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.settings }); toast.success("Notification templates saved."); },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   return (
     <div className="space-y-6">
       <PageHeader description="Configure document requirements, billing cadence, and notification templates." eyebrow="Configuration" title="System settings" />
       {isPending ? <LoadingCard message="Loading settings..." /> : null}
-      {error ? <ErrorCard message={String(error)} /> : null}
+      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <div className="space-y-6">
           <Card>
@@ -1843,6 +1863,20 @@ function ErrorCard({ message }: { message: string }) {
       <CardContent className="p-6 text-sm text-destructive">{message}</CardContent>
     </Card>
   );
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const message = typeof record.message === "string" ? record.message : "";
+    const details = typeof record.details === "string" ? record.details : "";
+    const hint = typeof record.hint === "string" ? record.hint : "";
+    const parts = [message, details, hint].filter(Boolean);
+    if (parts.length > 0) return parts.join(" ");
+  }
+  return "Something went wrong. Please try again.";
 }
 
 function formatCurrency(value: number) {

@@ -648,6 +648,33 @@ export async function updateVendorRecord(
   });
 }
 
+export async function deleteVendor(actorId: string, vendorId: string) {
+  const db = requireSupabase();
+
+  const { data: activeLeases, error: leasesError } = await db
+    .from("leases")
+    .select("stall_id")
+    .eq("vendor_id", vendorId)
+    .eq("status", "active");
+
+  if (leasesError) throw leasesError;
+
+  const activeStallIds = [...new Set((activeLeases ?? []).map((lease) => lease.stall_id).filter(Boolean))];
+  if (activeStallIds.length > 0) {
+    const { error: stallError } = await db
+      .from("stalls")
+      .update({ status: "available" })
+      .in("id", activeStallIds);
+
+    if (stallError) throw stallError;
+  }
+
+  const { error } = await db.from("vendors").delete().eq("id", vendorId);
+  if (error) throw error;
+
+  await logActivity(actorId, "deleted", "vendor", vendorId);
+}
+
 export async function fetchApplications(): Promise<{
   summary: [string, string][];
   rows: AdminApplicationRecord[];
@@ -1032,7 +1059,12 @@ export async function saveStall(
 export async function deleteStall(actorId: string, stallId: string) {
   const db = requireSupabase();
   const { error } = await db.from("stalls").delete().eq("id", stallId);
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23503") {
+      throw new Error("This stall is linked to existing records and cannot be deleted. Mark it inactive instead.");
+    }
+    throw error;
+  }
   await logActivity(actorId, "deleted", "stall", stallId);
 }
 

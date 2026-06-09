@@ -1,621 +1,720 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useAuth } from "@/features/auth/auth-context";
+import { saveStall } from "@/integrations/supabase/admin-service";
+import { isSupabaseConfigured } from "@/integrations/supabase/client";
 import type { AdminStallRecord } from "@/integrations/supabase/admin-service";
-
-// ─── Status styling ───────────────────────────────────────────────────────────
-
-const STATUS_STYLE: Record<string, { bg: string; border: string; text: string; dot: string }> = {
-  available:         { bg: "bg-emerald-50 hover:bg-emerald-100", border: "border-emerald-400", text: "text-emerald-800",  dot: "bg-emerald-500" },
-  occupied:          { bg: "bg-rose-50 hover:bg-rose-100",       border: "border-rose-400",    text: "text-rose-800",    dot: "bg-rose-500" },
-  reserved:          { bg: "bg-amber-50 hover:bg-amber-100",     border: "border-amber-400",   text: "text-amber-800",   dot: "bg-amber-500" },
-  under_maintenance: { bg: "bg-orange-50 hover:bg-orange-100",   border: "border-orange-400",  text: "text-orange-800",  dot: "bg-orange-400" },
-  inactive:          { bg: "bg-slate-100 hover:bg-slate-200",    border: "border-slate-300",   text: "text-slate-400",   dot: "bg-slate-400" },
-  unknown:           { bg: "bg-slate-50",                        border: "border-dashed border-slate-200", text: "text-slate-300", dot: "bg-slate-200" },
-};
-
-function normalizeStatus(s: string) {
-  return s.toLowerCase().replace(/\s+/g, "_");
-}
-function styleFor(status: string) {
-  return STATUS_STYLE[normalizeStatus(status)] ?? STATUS_STYLE.unknown;
-}
-
-// ─── Cell size constants (px) ─────────────────────────────────────────────────
-// Blueprint dims: most stalls are 2×4m or 3×4m. We approximate proportionally.
-const S = 36;   // base cell size px (small stall / narrow)
-const M = 44;   // medium stall
-const L = 56;   // large stall (4m+)
-const XL = 72;  // extra large
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-// A cell in the grid. null = invisible spacer.
-interface Cell {
-  num: string | null;
-  w?: number; // pixel width
-  h?: number; // pixel height
-}
-
-// A horizontal row of cells
-type GridRow = (Cell | null)[];
-
-// A rectangular block placed at a position in the floor layout
-interface Block {
-  id: string;
-  label: string;
-  color: string; // tailwind badge classes
-  cellW?: number; // default cell width
-  cellH?: number; // default cell height
-  rows: GridRow[];
-}
-
-// ─── Helper: make a simple row of stall numbers ───────────────────────────────
-function r(...nums: (string | null)[]): GridRow {
-  return nums.map((n) => (n === null ? null : { num: n }));
-}
-
-// ─── GROUND FLOOR – MAIN BUILDING (Page 1) ───────────────────────────────────
-//
-// Physical layout (top-to-bottom on blueprint):
-//
-//  ROW 1:  578 575 574 573 572 571  |  570 569 568 567  |  566 565 564 563 562
-//  ROW 2:  577 578 579 580 581 582  |  583 584 585 586  |  587 588 589 590 591
-//  ROW 3:  606 605 604 603 602 601  |  600 599 598 597  |  596 595 594 593 592
-//  ─── corridor ───────────────────────────────────────────────────────────────
-//  ROW 4:  607 608 609 610 611 612  |  613 614 615 616  |  617 618 619 620 621
-//  ROW 5:  636 635 634 633 632 631  |  630 629 628 627  |  626 625 624 623 622
-//  ROW 6:  637 638 639 640 641 642 643  |  644 645 646 647 648
-//  ─── canteen / stairway area ─────────────────────────────────────────────────
-//  CANTEEN TOP:    665 664 663  |  660 659 658
-//  CANTEEN BOT:    666 667 668 669  |  661 662 657 656 655
-
-const GF_MAIN_UPPER: Block = {
-  id: "gf_main_upper",
-  label: "Ground Floor – Main (Dry Goods, 562–648)",
-  color: "bg-amber-100 text-amber-900 border-amber-300",
-  cellW: S, cellH: S,
-  rows: [
-    r("578","575","574","573","572","571", null, "570","569","568","567", null, "566","565","564","563","562"),
-    r("577","578","579","580","581","582", null, "583","584","585","586", null, "587","588","589","590","591"),
-    r("606","605","604","603","602","601", null, "600","599","598","597", null, "596","595","594","593","592"),
-    r(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null), // corridor
-    r("607","608","609","610","611","612", null, "613","614","615","616", null, "617","618","619","620","621"),
-    r("636","635","634","633","632","631", null, "630","629","628","627", null, "626","625","624","623","622"),
-    r("637","638","639","640","641","642","643", null, null, null, null, null, "644","645","646","647","648"),
-  ],
-};
-
-const GF_MAIN_CANTEEN: Block = {
-  id: "gf_main_canteen",
-  label: "Ground Floor – Canteen / Wet Market Upper (655–669)",
-  color: "bg-blue-100 text-blue-900 border-blue-300",
-  cellW: S, cellH: S,
-  rows: [
-    r(null, null, null, "665","664","663", null, "660","659","658", null, null, null),
-    r(null, null, null, "666","667","668","669", null, "661","662","657","656","655"),
-  ],
-};
-
-// ─── GROUND FLOOR – MAIN LOWER (wet market stalls 670–717) ───────────────────
-//
-// Blueprint lower section shows two zones:
-// A) Narrow paired rows: 670-678 / 679-686 (left), 679-698 (right) — face each other
-// B) Large stalls in 3 block pairs:
-//    Block1: 688-693 top / 694-699 bot
-//    Block2: 700-705 top / 706-711 bot
-//    Block3: 712-717 bottom row
-
-const GF_MAIN_LOWER: Block = {
-  id: "gf_main_lower",
-  label: "Ground Floor – Main (Wet Market Lower, 670–717)",
-  color: "bg-cyan-100 text-cyan-900 border-cyan-300",
-  cellW: S, cellH: S,
-  rows: [
-    // Narrow facing rows
-    r("670","671","672","673","674","675","676","677","678", null, "688","687","686","685","684","683","682","681","680","679"),
-    r("679","678","677","676","675","674","673","672","671", null, "689","690","691","692","693","694","695","696","697","698"),
-    r(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null), // aisle
-    // Large stalls – 6 wide each, use wider cells
-    [
-      {num:"693",w:L},{num:"692",w:L},{num:"691",w:L}, null, {num:"690",w:L},{num:"689",w:L},{num:"688",w:L},
-    ],
-    [
-      {num:"694",w:L},{num:"695",w:L},{num:"696",w:L}, null, {num:"697",w:L},{num:"698",w:L},{num:"699",w:L},
-    ],
-    r(null), // aisle
-    [
-      {num:"705",w:L},{num:"704",w:L},{num:"703",w:L}, null, {num:"702",w:L},{num:"701",w:L},{num:"700",w:L},
-    ],
-    [
-      {num:"706",w:L},{num:"707",w:L},{num:"708",w:L}, null, {num:"709",w:L},{num:"710",w:L},{num:"711",w:L},
-    ],
-    r(null),
-    [
-      {num:"717",w:L},{num:"716",w:L},{num:"715",w:L}, null, {num:"714",w:L},{num:"713",w:L},{num:"712",w:L},
-    ],
-  ],
-};
-
-// ─── SECOND FLOOR – MAIN BUILDING (Page 2) ───────────────────────────────────
-//
-// Large stalls (4×4m+). Blueprint shows:
-// Left column (tall): 740, 741, 742, 743, 744
-// Middle columns: 738 (tall), 739/730/731/734 cluster
-// Right column (narrow 2m): 718,719,720,721,722,723,724,725,726,727,728,729
-// Stair area: 751, 752
-// Lower cluster: 745,746,747,748 / 749,750
-// Long bottom row: 753–782
-
-const SF_MAIN: Block = {
-  id: "sf_main",
-  label: "Second Floor – Main Building (718–782)",
-  color: "bg-violet-100 text-violet-900 border-violet-300",
-  cellW: M, cellH: M,
-  rows: [
-    // Right-side narrow stalls + tall left stalls
-    [{num:"740",w:XL,h:XL*2}, null, {num:"738",w:XL,h:XL*2}, null, {num:"739",w:XL,h:XL*2}, null, null, null, {num:"718",w:M},{num:"719",w:M}],
-    [null,                     null, null,                    null, null,                    null, null, null, {num:"720",w:M},{num:"721",w:M}],
-    [{num:"741",w:XL,h:XL*2}, null, {num:"730",w:XL,h:XL*2},null, {num:"731",w:XL,h:XL*2},null, null, null, {num:"722",w:M},{num:"723",w:M}],
-    [null,                     null, null,                    null, null,                    null, null, null, {num:"724",w:M},{num:"725",w:M}],
-    [{num:"742",w:XL,h:XL*2}, null, {num:"734",w:XL,h:XL*2},null, null,                    null, null, null, {num:"726",w:M},{num:"727",w:M}],
-    [null,                     null, null,                    null, null,                    null, null, null, {num:"728",w:M},{num:"729",w:M}],
-    [{num:"743",w:XL,h:XL*2}, null, null,                    null, null,                    null, null, null, {num:"751",w:M},{num:"752",w:M}],
-    [null,                     null, null,                    null, null,                    null, null, null, null,             null           ],
-    [{num:"744",w:XL,h:XL*2}, null, {num:"745",w:XL},{num:"746",w:XL},{num:"747",w:XL},{num:"748",w:XL}, null, null, null, null],
-    [null,                     null, {num:"749",w:XL},{num:"750",w:XL}, null,               null, null, null, null,             null           ],
-    // Long bottom row 753–782
-    ...Array.from({length:30},(_,i)=>[{num:String(753+i),w:M}]),
-  ],
-};
-
-// ─── GROUND FLOOR – ANNEX (Page 3) ───────────────────────────────────────────
-//
-// Blueprint shows an L-shaped plan:
-//  • Left wing:   stalls 12→1 running top-to-bottom along north wall, stall 751 at stairway
-//  • Bottom-left: stalls 35→39 horizontal at the foot of left wing
-//  • Right wing:  stalls 62→40 running top-to-bottom along east wall (long column)
-//  • Center grid: stalls 100–120 in paired columns
-//  • Bottom row:  stalls 240–248
-
-const GF_ANNEX_LEFT: Block = {
-  id: "gf_annex_left",
-  label: "Annex GF – Left Wing (1–12)",
-  color: "bg-green-100 text-green-900 border-green-300",
-  cellW: M, cellH: S,
-  rows: [
-    r("12"), r("11"), r("10"), r("9"), r("8"), r("7"),
-    r("751"), // stairway landing
-    r("6"), r("5"), r("4"), r("3"), r("2"), r("1"),
-  ],
-};
-
-const GF_ANNEX_BOTTOM_LEFT: Block = {
-  id: "gf_annex_btm_left",
-  label: "Annex GF – Stalls 35–39",
-  color: "bg-green-100 text-green-900 border-green-300",
-  cellW: M, cellH: S,
-  rows: [r("35","36","37","38","39")],
-};
-
-const GF_ANNEX_RIGHT: Block = {
-  id: "gf_annex_right",
-  label: "Annex GF – Right Wing (40–62)",
-  color: "bg-teal-100 text-teal-900 border-teal-300",
-  cellW: M, cellH: S,
-  rows: [
-    r("62"),r("61"),r("60"),r("59"),r("58"),r("57"),r("56"),r("55"),r("54"),
-    r("53"),r("52"),r("51"),r("50"),r("49"),r("48"),r("47"),r("46"),r("45"),
-    r("44"),r("43"),r("42"),r("41"),r("40"),
-  ],
-};
-
-const GF_ANNEX_CENTER: Block = {
-  id: "gf_annex_center",
-  label: "Annex GF – Center (100–120)",
-  color: "bg-teal-100 text-teal-900 border-teal-300",
-  cellW: S, cellH: S,
-  rows: [
-    r("114","113", null, "110","109", null, "104","103", null, "100"),
-    r("115","116", null, "111","112", null, "105","106", null, "101"),
-    r("118","117", null, null,  null,  null, "107","108", null, "102"),
-    r("119","120"),
-  ],
-};
-
-const GF_ANNEX_BOTTOM: Block = {
-  id: "gf_annex_bottom",
-  label: "Annex GF – Bottom Row (240–248)",
-  color: "bg-green-100 text-green-900 border-green-300",
-  cellW: M, cellH: S,
-  rows: [r("240","241","242","243","244", null, "245","246","247","248")],
-};
-
-// ─── SECOND FLOOR – ANNEX (Page 4) ───────────────────────────────────────────
-//
-// Mirror of annex GF shape:
-//  • Left wing:  13→24 top-to-bottom
-//  • Right wing: 86→63 top-to-bottom
-//  • Centre: large FUNCTION HALL (non-stall)
-//  • Bottom row: 249–258
-
-const SF_ANNEX_LEFT: Block = {
-  id: "sf_annex_left",
-  label: "Annex 2F – Left Wing (13–24)",
-  color: "bg-purple-100 text-purple-900 border-purple-300",
-  cellW: M, cellH: S,
-  rows: [
-    r("13"),r("14"),r("15"),r("16"),r("17"),r("18"),
-    r("19"),r("20"),r("21"),r("22"),r("23"),r("24"),
-  ],
-};
-
-const SF_ANNEX_RIGHT: Block = {
-  id: "sf_annex_right",
-  label: "Annex 2F – Right Wing (63–86)",
-  color: "bg-purple-100 text-purple-900 border-purple-300",
-  cellW: M, cellH: S,
-  rows: [
-    r("86"),r("85"),r("84"),r("83"),r("82"),r("81"),r("80"),r("79"),r("78"),
-    r("77"),r("76"),r("75"),r("74"),r("73"),r("72"),r("71"),r("70"),r("69"),
-    r("68"),r("67"),r("66"),r("65"),r("64"),r("63"),
-  ],
-};
-
-const SF_ANNEX_BOTTOM: Block = {
-  id: "sf_annex_bottom",
-  label: "Annex 2F – Bottom Row (249–258)",
-  color: "bg-purple-100 text-purple-900 border-purple-300",
-  cellW: M, cellH: S,
-  rows: [r("249","250","251","252","253","254","255","256","257","258")],
-};
-
-// ─── MIXED SECTION (Page 5) ───────────────────────────────────────────────────
-//
-// Blueprint shows paired rows (top read right-to-left, bottom left-to-right).
-// Each pair shares a back wall. The columns are read from the PDF:
-//
-// Pair A:  [top]  370 369 368 367 366 365 364 363 362 361 360 359
-//          [bot]  371 372 373 374 375 376 377 378 379 380 381
-// Pair B:  [top]  396 395 394 393 392 391 390 389 388 387 386 385 384 383 382
-//          [bot]  397 398 399 400 401 402 403 404 405 406 407 408 409 410 411
-// Pair C:  [top]  435 434 433 432 431 430 429 428 427 426 425 424 423 422 421 420 419 418 417 416 415 414
-//          [bot]  436 437 438 439 440 441 442 443 444 445 446 447 448 449 450 451 452 453 454 455 456 413
-// Pair D:  [top]  477 476 475 474 473 472 471 470 469 468 467 466 465 464 463 462 461 460 459 458 457
-//          [bot]  478 479 480 481 482 483 484 485 486 487 488 489 490 491 492 493 494 495 496 497 498 499
-// Pair E:  [top]  519 518 517 516 515 514 513 512 511 510 509 508 507 506 505 504 503 502 501 500
-//          [bot]  520 521 522 523 524 525 526 527 528 529 530 531 532 533 534 535 536 537 538 539 540
-// Pair F:  [top]  561 560 559 558 557 556 555 554 553 552 551 550 549 548 547 546 545 544 543 542 541
-//          [bot]  (none – single row)
-
-const MIXED: Block = {
-  id: "mixed_section",
-  label: "Mixed Section (359–561)",
-  color: "bg-rose-100 text-rose-900 border-rose-300",
-  cellW: S, cellH: S,
-  rows: [
-    // Pair A
-    r(null,null,null,null,null,null,null,null,null,null,"370","369","368","367","366","365","364","363","362","361","360","359"),
-    r(null,null,null,null,null,null,null,null,null,null,null,"371","372","373","374","375","376","377","378","379","380","381"),
-    // Pair B
-    r(null,null,null,null,null,null,null,"396","395","394","393","392","391","390","389","388","387","386","385","384","383","382"),
-    r(null,null,null,null,null,null,null,null,"397","398","399","400","401","402","403","404","405","406","407","408","409","410"),
-    // Pair C
-    r("435","434","433","432","431","430","429","428","427","426","425","424","423","422","421","420","419","418","417","416","415","414"),
-    r("436","437","438","439","440","441","442","443","444","445","446","447","448","449","450","451","452","453","454","455","456","413"),
-    // Pair D
-    r("477","476","475","474","473","472","471","470","469","468","467","466","465","464","463","462","461","460","459","458","457",null),
-    r("478","479","480","481","482","483","484","485","486","487","488","489","490","491","492","493","494","495","496","497","498","499"),
-    // Pair E
-    r(null,"519","518","517","516","515","514","513","512","511","510","509","508","507","506","505","504","503","502","501","500",null),
-    r(null,"520","521","522","523","524","525","526","527","528","529","530","531","532","533","534","535","536","537","538","539","540"),
-    // Pair F
-    r(null,"561","560","559","558","557","556","555","554","553","552","551","550","549","548","547","546","545","544","543","542","541"),
-  ],
-};
-
-// ─── Floor layout descriptors ─────────────────────────────────────────────────
-// Each floor is an array of "rows" of blocks to render side-by-side.
-// A FloorRow entry is either a Block or a spacer string ("SPACE").
-
-type FloorRow = (Block | "SPACE" | "HALL")[];
-
-const GROUND_FLOOR: FloorRow[] = [
-  // Main building top section
-  [GF_MAIN_UPPER],
-  ["SPACE"],
-  [GF_MAIN_CANTEEN],
-  ["SPACE"],
-  [GF_MAIN_LOWER],
-  ["SPACE"],
-  // Annex: left wing | open yard | right wing — side by side
-  [GF_ANNEX_LEFT, "SPACE", GF_ANNEX_CENTER, "SPACE", GF_ANNEX_RIGHT],
-  [GF_ANNEX_BOTTOM_LEFT],
-  ["SPACE"],
-  [GF_ANNEX_BOTTOM],
-  ["SPACE"],
-  [MIXED],
-];
-
-const SECOND_FLOOR: FloorRow[] = [
-  [SF_MAIN],
-  ["SPACE"],
-  // Annex: left wing | function hall | right wing
-  [SF_ANNEX_LEFT, "HALL", SF_ANNEX_RIGHT],
-  ["SPACE"],
-  [SF_ANNEX_BOTTOM],
-];
-
-// ─── Stall cell ───────────────────────────────────────────────────────────────
-
-interface TooltipState {
-  stall: AdminStallRecord;
-  x: number;
-  y: number;
-}
-
-function StallTile({
-  cell,
-  stallMap,
-  onEdit,
-  onHover,
-  onLeave,
-  defaultW,
-  defaultH,
-}: {
-  cell: Cell;
-  stallMap: Map<string, AdminStallRecord>;
-  onEdit?: (id: string) => void;
-  onHover: (e: React.MouseEvent, r: AdminStallRecord) => void;
-  onLeave: () => void;
-  defaultW: number;
-  defaultH: number;
-}) {
-  if (cell.num === null) {
-    return <div style={{ width: cell.w ?? defaultW, height: cell.h ?? defaultH, flexShrink: 0 }} />;
-  }
-  const record = stallMap.get(cell.num);
-  const s = record ? styleFor(record.status) : STATUS_STYLE.unknown;
-  const w = cell.w ?? defaultW;
-  const h = cell.h ?? defaultH;
-
-  return (
-    <button
-      type="button"
-      onClick={() => record && onEdit?.(record.id)}
-      onMouseEnter={(e) => record && onHover(e, record)}
-      onMouseLeave={onLeave}
-      style={{ width: w, height: h, flexShrink: 0 }}
-      className={`
-        relative flex items-center justify-center rounded border
-        text-[8px] font-bold leading-tight transition-all duration-100 select-none
-        ${s.bg} ${s.border} ${s.text}
-        ${record && onEdit ? "cursor-pointer" : "cursor-default"}
-      `}
-      title={record ? `${record.stall} — ${record.status}` : `Stall ${cell.num} (no data)`}
-    >
-      <span className={`absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full ${s.dot}`} />
-      <span className="text-center px-0.5 leading-none">{cell.num}</span>
-    </button>
-  );
-}
-
-// ─── Block renderer ───────────────────────────────────────────────────────────
-
-function BlockRenderer({
-  block,
-  stallMap,
-  onEdit,
-  onHover,
-  onLeave,
-}: {
-  block: Block;
-  stallMap: Map<string, AdminStallRecord>;
-  onEdit?: (id: string) => void;
-  onHover: (e: React.MouseEvent, r: AdminStallRecord) => void;
-  onLeave: () => void;
-}) {
-  const dw = block.cellW ?? S;
-  const dh = block.cellH ?? S;
-
-  return (
-    <div className="flex flex-col gap-0">
-      {/* Badge */}
-      <div className={`mb-1 self-start inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${block.color}`}>
-        {block.label}
-      </div>
-      {/* Rows */}
-      {block.rows.map((row, ri) => {
-        // Detect corridor row (all nulls)
-        const allNull = row.every((c) => c === null);
-        if (allNull) {
-          return <div key={ri} className="h-3 border-t border-dashed border-slate-200 my-0.5" />;
-        }
-        return (
-          <div key={ri} className="flex gap-0.5 mb-0.5">
-            {row.map((cell, ci) => {
-              if (cell === null) {
-                return <div key={ci} style={{ width: dw, height: dh, flexShrink: 0 }} />;
-              }
-              return (
-                <StallTile
-                  key={ci}
-                  cell={cell}
-                  stallMap={stallMap}
-                  onEdit={onEdit}
-                  onHover={onHover}
-                  onLeave={onLeave}
-                  defaultW={dw}
-                  defaultH={dh}
-                />
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Floor renderer ───────────────────────────────────────────────────────────
-
-function FloorRenderer({
-  rows,
-  stallMap,
-  onEdit,
-  onHover,
-  onLeave,
-}: {
-  rows: FloorRow[];
-  stallMap: Map<string, AdminStallRecord>;
-  onEdit?: (id: string) => void;
-  onHover: (e: React.MouseEvent, r: AdminStallRecord) => void;
-  onLeave: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-6">
-      {rows.map((row, ri) => {
-        // Single SPACE separator
-        if (row.length === 1 && row[0] === "SPACE") {
-          return <div key={ri} className="border-t border-border/40" />;
-        }
-
-        return (
-          <div key={ri} className="flex items-start gap-6 flex-wrap">
-            {row.map((item, ii) => {
-              if (item === "SPACE") {
-                return <div key={ii} className="w-8 shrink-0" />;
-              }
-              if (item === "HALL") {
-                return (
-                  <div
-                    key={ii}
-                    className="flex items-center justify-center rounded-lg border-2 border-dashed border-purple-300 bg-purple-50 text-purple-400 text-sm font-semibold"
-                    style={{ minWidth: 180, minHeight: 200 }}
-                  >
-                    Function Hall
-                  </div>
-                );
-              }
-              return (
-                <BlockRenderer
-                  key={item.id}
-                  block={item}
-                  stallMap={stallMap}
-                  onEdit={onEdit}
-                  onHover={onHover}
-                  onLeave={onLeave}
-                />
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Main export ──────────────────────────────────────────────────────────────
 
 interface StallHeatMapProps {
   stalls: AdminStallRecord[];
   onEdit?: (id: string) => void;
 }
 
-export function StallHeatMap({ stalls, onEdit }: StallHeatMapProps) {
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
-  const [activeFloor, setActiveFloor] = useState<"ground" | "second">("ground");
+interface PanelState { stall: AdminStallRecord | null; stallNum: string }
+interface StallPlacement { num: string; x: number; y: number; w: number; h: number }
+interface EmptyPlacement { x: number; y: number; w: number; h: number }
 
-  const stallMap = new Map<string, AdminStallRecord>();
-  for (const s of stalls) stallMap.set(s.stallNumber, s);
+type StatusKey = "available" | "occupied" | "reserved" | "under_maintenance" | "inactive" | "unknown";
 
-  const counts = stalls.reduce<Record<string, number>>((acc, s) => {
-    const k = normalizeStatus(s.status);
-    acc[k] = (acc[k] ?? 0) + 1;
-    return acc;
-  }, {});
+function normalizeStatus(status: string): StatusKey {
+  const s = status.toLowerCase().replace(/\s+/g, "_");
+  if (s === "available") return "available";
+  if (s === "occupied") return "occupied";
+  if (s === "reserved") return "reserved";
+  if (s === "under_maintenance") return "under_maintenance";
+  if (s === "inactive") return "inactive";
+  return "unknown";
+}
 
-  function handleHover(e: React.MouseEvent, record: AdminStallRecord) {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setTooltip({ stall: record, x: rect.left, y: rect.bottom + 8 });
-  }
+const STATUS_STYLES: Record<StatusKey, { bg: string; border: string; text: string; dot: string; label: string }> = {
+  available:         { bg: "linear-gradient(135deg,#dcfce7,#bbf7d0)", border: "#16a34a", text: "#14532d", dot: "#16a34a", label: "Available" },
+  occupied:          { bg: "linear-gradient(135deg,#fee2e2,#fecaca)", border: "#dc2626", text: "#7f1d1d", dot: "#dc2626", label: "Occupied" },
+  reserved:          { bg: "linear-gradient(135deg,#fef9c3,#fef08a)", border: "#ca8a04", text: "#713f12", dot: "#ca8a04", label: "Reserved" },
+  under_maintenance: { bg: "linear-gradient(135deg,#ffedd5,#fed7aa)", border: "#ea580c", text: "#431407", dot: "#ea580c", label: "Under Maintenance" },
+  inactive:          { bg: "linear-gradient(135deg,#f3f4f6,#e5e7eb)", border: "#9ca3af", text: "#374151", dot: "#9ca3af", label: "Inactive" },
+  unknown:           { bg: "linear-gradient(135deg,#dbeafe,#bfdbfe)", border: "#93c5fd", text: "#1e40af", dot: "#93c5fd", label: "No Record" },
+};
 
-  const floorRows = activeFloor === "ground" ? GROUND_FLOOR : SECOND_FLOOR;
+function col(nums: string[], x: number, y0: number, w: number, h: number, gap = 1): StallPlacement[] {
+  return nums.map((num, i) => ({ num, x, y: y0 + i * (h + gap), w, h }));
+}
+function row(nums: string[], x0: number, y: number, w: number, h: number, gap = 2): StallPlacement[] {
+  return nums.map((num, i) => ({ num, x: x0 + i * (w + gap), y, w, h }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAYOUT — all coordinates are INSIDE the wall boundary
+//
+// Wall boundary (outer edge):
+//   Top-left  : (WALL_L, WALL_T)
+//   Top-right : (WALL_R, WALL_T)
+//   The wall forms a U-shape open at nothing — it's a closed floor plan.
+//
+// Stall cell sizes:
+//   Side columns (left/right): W=76, H=38, vertical step=40
+//   Centre double columns:      W=54, H=38, vertical step=40
+//   Bottom row:                 W=46, H=38
+//
+// Inner margin from wall to first cell: 6px on each side.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WALL_L = 30;
+const WALL_T = 36;
+const WALL_R = 544;
+const WALL_B = 656;
+const CANVAS_W = 1580;
+const CANVAS_H = 840;
+const PAD = 9;
+
+// Cell sizes
+const SCW = 50, SCH = 24;
+const DCW = 38, DCH = 20;
+const BRW = 28, BRH = 24;
+const SIDE_STEP = SCH + 1;
+const CENTER_STEP = DCH + 2;
+const BOTTOM_STEP = BRW + 2;
+const VSTEP = SCH + 2;      // 40 — vertical step for all columns
+
+// ── LEFT column ──────────────────────────────────────────────────────────────
+const LX = WALL_L + PAD;
+const LT_Y = WALL_T + 12;          // 26 — top of first stall (12)
+
+// Top block: 12 → 7  (6 cells), y: 26 → 26 + 6×40 = 266
+const LEFT_TOP = col(["12","11","10","9","8","7"], LX, LT_Y, SCW, SCH);
+
+// Lift zone height: stair-box (54px) + gap
+const LIFT_H = 48;
+const LIFT_L_Y = LT_Y + 6 * SIDE_STEP + 18;   // 266
+
+// Bottom block: 6 → 1  (6 cells), y: 266+54=320 → 320+240=560
+const LB_Y = LIFT_L_Y + LIFT_H + 6;      // 320
+const LEFT_BOTTOM = col(["6","5","4","3","2","1"], LX, LB_Y, SCW, SCH);
+
+// Blank tile + row 36–40 — same y as bottom of left column
+const HR_Y = LB_Y + 6 * SIDE_STEP + 2;      // 560
+const HR_X0 = LX + SCW + 3;          // 106
+const LB_BLANK: EmptyPlacement = { x: LX, y: HR_Y, w: SCW, h: SCH };
+const LEFT_ROW = row(["36","37","38","39","40"], HR_X0, HR_Y, BRW, BRH);
+// row ends at x = 106 + 5*48 = 346
+
+// ── RIGHT column ─────────────────────────────────────────────────────────────
+// The right column sits flush to the right wall.
+// Canvas width is driven by: right stall right edge + PAD + wall thickness
+// Right column top aligns with left column top (y=26).
+//
+// We'll determine RX after fixing the canvas width below.
+// For now compute with target canvas width.
+
+// Right column top block: 60 → 50  (11 cells)
+const RT_Y = WALL_T + 19;
+
+// Right lift zone
+const LIFT_R_Y = RT_Y + 11 * SIDE_STEP + 12;
+
+// Right bottom block: 49 → 40  (10 cells)
+const RB_Y = LIFT_R_Y + LIFT_H + 12;
+
+// ── CENTRE double columns ────────────────────────────────────────────────────
+// Horizontally centred in the floor plan.
+// Centre-top starts at y ≈ 160, matching the reference image.
+const CT_Y = 166;
+const CB_Y = CT_Y + 8 * CENTER_STEP + 22;  // 160 + 320 + 20 = 500 — bottom pair start
+
+// Bottom row (240–243 | stair | 245–248)
+const BOT_Y = 516; // 500 + 200 + 20 = 720
+
+// ── Canvas size ───────────────────────────────────────────────────────────────
+// Height: bottom of right column (RB_Y + 10*40 = 520+400=920) vs bottom row (BOT_Y+38=758)
+// Right column is the tallest → canvas height = RB_Y + 10*VSTEP + PAD + wall
+
+// Width: need to fit right column + lift box + right wall
+// Right lift box sits to the right of the right column: lift_w = 62px
+// RX + SCW + 4 + 62 + PAD + wall ≤ CANVAS_W
+// Decide CANVAS_W = 1060
+
+// RX: right stall column x — right-align against WALL_R - PAD - SCW
+const RX = WALL_R - PAD - SCW + 14;
+const RIGHT_AUX_X = RX + SCW - 34;
+const RIGHT_AUX_W = WALL_R - RIGHT_AUX_X - 4;
+
+// ── Centre columns x ─────────────────────────────────────────────────────────
+// Horizontally: centre them between the left col right-edge and right col left-edge
+// Left col right edge: LX + SCW = 102
+// Right col left edge: RX = 958
+// Mid point: (102 + 958) / 2 = 530
+// Centre pair total width: DCW + 2 + DCW = 110
+const CCL_X = 340;
+const CCR_X = CCL_X + DCW + 2;
+
+// Recompute bottom row to align with centre columns
+// 240–243: 4 cells, ending at CCL_X (aligned to centre-left column left edge)
+const BOT_L_X0 = 216;
+const BOTTOM_LEFT  = row(["240","241","242","243"], BOT_L_X0, BOT_Y, BRW, BRH);
+// 245–248: starting at CCR_X + DCW + stair_gap(38)
+const BOT_STAIR_X = BOT_L_X0 + 4 * BOTTOM_STEP + 4;
+const BOT_STAIR_W = 26;
+const BOT_R_X0 = BOT_STAIR_X + BOT_STAIR_W + 4;
+const BOTTOM_RIGHT = row(["245","246","247","248"], BOT_R_X0, BOT_Y, BRW, BRH);
+
+const MAIN_X = 740;
+const MAIN_Y = 48;
+const MCW = 46, MCH = 30;
+const MSTEP_X = MCW + 1;
+const MSTEP_Y = MCH + 34;
+const MAIN_GAP_1 = 32;
+const MAIN_GAP_2 = 42;
+
+function mainRow(
+  y: number,
+  left: string[],
+  middle: string[],
+  right: string[],
+): StallPlacement[] {
+  const leftRow = row(left, MAIN_X, y, MCW, MCH, 1);
+  const middleX = MAIN_X + left.length * (MCW + 1) + MAIN_GAP_1;
+  const middleRow = row(middle, middleX, y, MCW, MCH, 1);
+  const rightX = middleX + middle.length * (MCW + 1) + MAIN_GAP_2;
+  return [...leftRow, ...middleRow, ...row(right, rightX, y, MCW, MCH, 1)];
+}
+
+const MAIN_TOP = [
+  ...mainRow(MAIN_Y + 0 * MSTEP_Y, ["576","575","574","573","572","571"], ["570","569","568","567"], ["566","565","564","563","562"]),
+  ...mainRow(MAIN_Y + 1 * MSTEP_Y, ["577","578","579","580","581","582"], ["583","584","585","586"], ["587","588","589","590","591"]),
+  ...mainRow(MAIN_Y + 2 * MSTEP_Y, ["606","605","604","603","602","601"], ["600","599","598","597"], ["596","595","594","593","592"]),
+  ...mainRow(MAIN_Y + 3 * MSTEP_Y, ["607","608","609","610","611","612"], ["613","614","615","616"], ["617","618","619","620","621"]),
+  ...mainRow(MAIN_Y + 4 * MSTEP_Y, ["636","635","634","633","632","631"], ["630","629","628","627"], ["626","625","624","623","622"]),
+];
+
+const MAIN_SINGLE_ROWS = [
+  ...row(["637","638","639","640","641","642","643"], MAIN_X, MAIN_Y + 5 * MSTEP_Y, MCW, MCH, 1),
+  ...row(["644","645","646","647","648","649"], MAIN_X + 7 * (MCW + 1) + 28, MAIN_Y + 5 * MSTEP_Y, MCW, MCH, 1),
+];
+
+const MAIN_MID_Y = MAIN_Y + 6 * MSTEP_Y + 16;
+const MAIN_MID_LEFT = [
+  ...row(["674","673","672","671","670","668"], MAIN_X, MAIN_MID_Y, MCW, MCH, 1),
+  ...row(["675","676","677","678","679","680"], MAIN_X, MAIN_MID_Y + MCH, MCW, MCH, 1),
+];
+const MAIN_MID_RIGHT_X = MAIN_X + 6 * (MCW + 1) + 52;
+const MAIN_MID_RIGHT = [
+  ...row(["669","667","666","665","664","663","662"], MAIN_MID_RIGHT_X, MAIN_MID_Y, MCW, MCH, 1),
+  ...row(["681","682","683","684","685","686","687"], MAIN_MID_RIGHT_X, MAIN_MID_Y + MCH, MCW, MCH, 1),
+];
+
+const MAIN_LOW_X = MAIN_X + 130;
+const MAIN_LOW_Y = MAIN_MID_Y + 110;
+const MAIN_LCW = 82, MAIN_LCH = 44;
+const MAIN_LOWER = [
+  ...row(["693","692","691","690","689","688"], MAIN_LOW_X, MAIN_LOW_Y, MAIN_LCW, MAIN_LCH, 0),
+  ...row(["694","695","696","697","698","699"], MAIN_LOW_X, MAIN_LOW_Y + MAIN_LCH + 18, MAIN_LCW, MAIN_LCH, 0),
+  ...row(["705","704","703","702","701","700"], MAIN_LOW_X, MAIN_LOW_Y + 2 * MAIN_LCH + 18, MAIN_LCW, MAIN_LCH, 0),
+  ...row(["706","707","708","709","710","711"], MAIN_LOW_X, MAIN_LOW_Y + 3 * MAIN_LCH + 36, MAIN_LCW, MAIN_LCH, 0),
+  ...row(["717","716","715","714","713","712"], MAIN_LOW_X, MAIN_LOW_Y + 4 * MAIN_LCH + 36, MAIN_LCW, MAIN_LCH, 0),
+];
+
+const MAIN_GROUND = [
+  ...MAIN_TOP,
+  ...MAIN_SINGLE_ROWS,
+  ...MAIN_MID_LEFT,
+  ...MAIN_MID_RIGHT,
+  ...MAIN_LOWER,
+];
+
+// ── Stall arrays ──────────────────────────────────────────────────────────────
+const RIGHT_TOP    = col(["60","59","58","57","56","55","54","53","52","51","50"], RX, RT_Y, SCW, SCH);
+const RIGHT_BOTTOM = col(["49","48","47","46","45","44","43","42","41","40"],     RX, RB_Y, SCW, SCH);
+const CENTER_TOP_L = col(["195","194","193","192","191","190","189","188"], CCL_X, CT_Y, DCW, DCH, 2);
+const CENTER_TOP_R = col(["170","171","172","173","174","175","176","177"], CCR_X, CT_Y, DCW, DCH, 2);
+const CENTER_BOT_L = col(["187","186","185","184","183"], CCL_X, CB_Y, DCW, DCH, 2);
+const CENTER_BOT_R = col(["178","179","180","181","182"], CCR_X, CB_Y, DCW, DCH, 2);
+
+const STALLS: StallPlacement[] = [
+  ...LEFT_TOP, ...LEFT_BOTTOM, ...LEFT_ROW,
+  ...RIGHT_TOP, ...RIGHT_BOTTOM,
+  ...CENTER_TOP_L, ...CENTER_TOP_R,
+  ...CENTER_BOT_L, ...CENTER_BOT_R,
+  ...BOTTOM_LEFT, ...BOTTOM_RIGHT,
+  ...MAIN_GROUND,
+];
+
+// ── Wall geometry (derived from stall positions) ──────────────────────────────
+// Left section bottom (below row 36–40): HR_Y + BRH + 6
+const LEFT_SEC_BOT = HR_Y + BRH + 8;   // 604
+// Right inner wall x (left edge of lift/stair zone beside right col)
+const R_INNER_X = RX - 14;             // 948
+// Bottom of floor plan wall
+// Left lift notch inner-right x
+const liftNotchL = WALL_L + 2 + 30;    // 52
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function BlueprintTile({ placement, stall, onEdit, onSelect }: {
+  placement: StallPlacement;
+  stall?: AdminStallRecord;
+  onEdit?: (id: string) => void;
+  onSelect: (stall: AdminStallRecord | null, stallNum: string) => void;
+}) {
+  const sk = stall ? normalizeStatus(stall.status) : "unknown";
+  const ss = STATUS_STYLES[sk];
+  return (
+    <button
+      aria-label={stall ? `Stall ${stall.stall} — ${stall.status}` : `Stall ${placement.num}`}
+      className="absolute flex items-center justify-center select-none group transition-transform duration-100 hover:scale-[1.08] hover:z-10"
+      onClick={() => onSelect(stall ?? null, placement.num)}
+      style={{
+        left: placement.x, top: placement.y,
+        width: placement.w, height: placement.h,
+        background: ss.bg, border: `1.5px solid ${ss.border}`,
+        borderRadius: 4, cursor: "pointer",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.09)", zIndex: 1,
+      }}
+      title={stall ? `${stall.stall} — ${stall.status}` : `Stall ${placement.num}`}
+      type="button"
+    >
+      <span style={{ fontSize: 12, fontWeight: 700, color: ss.text, lineHeight: 1 }}>
+        {placement.num}
+      </span>
+      <span className="absolute inset-0 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+        style={{ background: "rgba(0,0,0,0.10)" }} />
+    </button>
+  );
+}
+
+function EmptyTile({ p }: { p: EmptyPlacement }) {
+  return (
+    <div className="absolute border border-gray-300 bg-gray-100 rounded"
+      style={{ left: p.x, top: p.y, width: p.w, height: p.h }} />
+  );
+}
+
+function Lift({ x, y, w, h }: { x: number; y: number; w: number; h: number }) {
+  return (
+    <div className="absolute flex items-center justify-center border-2 border-gray-800 bg-white text-[11px] font-black text-gray-800 tracking-widest rounded-sm"
+      style={{ left: x, top: y, width: w, height: h }}>
+      LIFT
+    </div>
+  );
+}
+
+function StairBox({ x, y, w, h, dir = "down" }: { x: number; y: number; w: number; h: number; dir?: "down" | "left" | "right" | "up" }) {
+  const arrow = { down: "▼", up: "▲", left: "◀", right: "▶" }[dir];
+  return (
+    <div className="absolute border border-gray-500 bg-white rounded-sm overflow-hidden"
+      style={{
+        left: x, top: y, width: w, height: h,
+        backgroundImage: "repeating-linear-gradient(0deg,transparent 0,transparent 5px,#e5e7eb 5px,#e5e7eb 6px)",
+      }}>
+      <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[9px] font-black text-gray-500 select-none">{arrow}</span>
+    </div>
+  );
+}
+
+function Walls() {
+  // The floor plan outline is a closed polygon.
+  // Outer shape:
+  //   - Starts top-left (WALL_L, WALL_T)
+  //   - Goes right to WALL_R
+  //   - Down to WALL_B
+  //   - Left to step-x (right edge of left section bottom)
+  //   - Up to LEFT_SEC_BOT
+  //   - Left back to WALL_L
+  //   - Up with left-lift notch to WALL_T
+  //
+  // Left lift notch: the wall indents right (by ~30px) between LIFT_L_Y and LIFT_L_Y+LIFT_H
+
+  const stepX        = HR_X0 + 5 * (BRW + 2) + 6;  // right edge of row 36–40 + gap ≈ 352
+  const notchX       = LX - PAD + 2;                 // slight indent for lift area ≈ 22
+  const wallLiftNotchX = notchX + 30;                // left edge of lift zone inner wall ≈ 52
+
+  // Right: stair box sits outside the main stall column (to its right)
+  // The outer wall on the right contains both the stalls and the lift/stair box
+  // so WALL_R is already the outer right boundary.
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-card/80 shadow-soft overflow-hidden">
-      {/* Top bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/60 px-6 py-4">
-        <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
-          {([
-            { key: "ground", label: "Ground Floor" },
-            { key: "second", label: "Second Floor" },
-          ] as const).map(({ key, label }) => (
+    <svg className="absolute inset-0 pointer-events-none" fill="none"
+      height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`} width={CANVAS_W}>
+
+      {/* ── Main floor-plan outline ─────────────────────────────── */}
+      <path stroke="#1f2937" strokeWidth="2.5"
+        d={[
+          `M ${WALL_L} ${WALL_T}`,          // top-left corner
+          `H ${WALL_R}`,                      // top edge →
+          `V ${WALL_B}`,                      // right edge ↓
+          `H ${stepX}`,                       // bottom edge ←  (to step)
+          `V ${LEFT_SEC_BOT}`,                // step up ↑
+          `H ${WALL_L}`,                      // inner bottom edge ←
+          `V ${LIFT_L_Y + LIFT_H}`,           // left wall ↑ to lift-bottom
+          `H ${wallLiftNotchX}`,              // notch right →
+          `V ${LIFT_L_Y}`,                    // notch up ↑
+          `H ${WALL_L}`,                      // notch back left ←
+          `Z`,                                // close to WALL_T
+        ].join(" ")}
+      />
+
+      {/* ── Left — stair wing top (column right of stall 12) ────── */}
+      <path stroke="#1f2937" strokeWidth="1.5"
+        d={[
+          `M ${LX + SCW + 2} ${WALL_T}`,
+          `V ${LT_Y + 6 * SIDE_STEP}`,
+        ].join(" ")}
+      />
+      {/* Stair box outline top-left */}
+      <rect fill="none" height={LIFT_H} rx={2} stroke="#1f2937" strokeWidth="1.5"
+        width={54} x={LX + SCW + 4} y={LT_Y}
+      />
+
+      {/* ── Left — small stair nub (beside row 36) ──────────────── */}
+      <rect fill="none" height={BRH + 4} rx={2} stroke="#1f2937" strokeWidth="1.5"
+        width={26} x={LX + SCW + 2} y={HR_Y - 2}
+      />
+
+      {/* ── Right — stair box top ────────────────────────────────── */}
+      <rect fill="none" height={32} rx={2} stroke="#1f2937" strokeWidth="1.5"
+        width={RIGHT_AUX_W} x={RIGHT_AUX_X} y={WALL_T}
+      />
+      {/* Vertical connector from stair box to lift zone */}
+      <path stroke="#1f2937" strokeWidth="1.5"
+        d={`M ${RIGHT_AUX_X} ${WALL_T + 32} V ${LIFT_R_Y}`}
+      />
+
+      {/* ── Right — inner wall (left side of right lift zone) ────── */}
+      <path stroke="#1f2937" strokeWidth="1.5"
+        d={`M ${R_INNER_X} ${LIFT_R_Y} V ${WALL_B}`}
+      />
+      {/* Horizontal caps of right lift zone */}
+      <path stroke="#1f2937" strokeWidth="1.5"
+        d={`M ${R_INNER_X} ${LIFT_R_Y} H ${WALL_R}`}
+      />
+      <path stroke="#1f2937" strokeWidth="1.5"
+        d={`M ${R_INNER_X} ${LIFT_R_Y + LIFT_H} H ${WALL_R}`}
+      />
+
+      {/* ── Bottom — stair gap between 243 and 245 ───────────────── */}
+      <rect fill="none" height={BRH + 4} rx={2} stroke="#1f2937" strokeWidth="1.5"
+        width={BOT_STAIR_W}
+        x={BOT_STAIR_X}
+        y={BOT_Y - 2}
+      />
+    </svg>
+  );
+}
+
+function PlanLabel() {
+  return (
+    <div className="absolute left-6 top-2">
+      <div className="text-[11px] font-bold tracking-[0.14em] text-[#0b2a5b] uppercase">
+        Ground Floor Plan
+      </div>
+    </div>
+  );
+}
+
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 pt-2.5 pb-3 border-t border-gray-100 bg-white">
+      {(Object.entries(STATUS_STYLES) as [StatusKey, typeof STATUS_STYLES[StatusKey]][]).map(([, s]) => (
+        <div className="flex items-center gap-1.5" key={s.label}>
+          <span className="inline-block h-3 w-3 rounded-sm border" style={{ background: s.bg, borderColor: s.border }} />
+          <span className="text-[11px] font-medium" style={{ color: s.text }}>{s.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Stall Modal ───────────────────────────────────────────────────────────────
+// ── Shared field wrapper ──────────────────────────────────────────────────────
+function MF({ label, children, required }: { label: string; children: React.ReactNode; required?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const inputCls =
+  "w-full rounded-lg border border-gray-200 bg-[#f8faff] px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#1e3a8a] focus:bg-white transition";
+const selectCls = inputCls + " cursor-pointer";
+
+// ── ADD NEW VENDOR modal ──────────────────────────────────────────────────────
+function StallModal({ stall, stallNum, onClose }: {
+  stall: AdminStallRecord | null;
+  stallNum: string;
+  onEdit?: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  const displayName = stall ? stall.stall : `Stall ${stallNum}`;
+
+  const [form, setForm] = useState({
+    vendorName: "",
+    email: "",
+    phone: "",
+    stallType: stall?.type || "",
+    monthlyRent: String(stall?.rate || ""),
+    leaseStart: "",
+    leaseEnd: "",
+    status: "Occupied",
+    paymentStatus: "Paid",
+    vendorPassword: "",
+  });
+
+  const f = <K extends keyof typeof form>(k: K) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const save = useMutation({
+    mutationFn: () => {
+      if (!stall) return Promise.reject(new Error("Stall record not found in database."));
+      const stallRecord = stall;
+      return saveStall(user!.id, {
+        stallId: stallRecord.id,
+        sectionId: stallRecord.sectionId,
+        stallNumber: stallRecord.stallNumber,
+        stallType: form.stallType,
+        monthlyRate: Number(form.monthlyRent),
+        status: form.status,
+        notes: stallRecord.notes,
+      });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-stalls"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-dashboard-live"] }),
+      ]);
+      toast.success(`Vendor added to ${displayName}`);
+      onClose();
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const canSave = form.vendorName && form.email && form.stallType && form.monthlyRent && form.leaseStart && form.leaseEnd;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-xl shadow-2xl w-full overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 500, maxHeight: "92vh", display: "flex", flexDirection: "column" }}
+      >
+        {/* ── Header ── */}
+        <div className="px-7 pt-6 pb-4 border-b-2 border-[#1e3a8a]">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-[#1e3a8a] tracking-wide">ADD NEW VENDOR</h2>
             <button
-              key={key}
+              className="text-gray-400 hover:text-gray-600 transition text-xl font-light leading-none"
+              onClick={onClose}
               type="button"
-              className={`px-4 py-2 transition-colors ${activeFloor === key ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setActiveFloor(key)}
             >
-              {label}
+              ×
             </button>
+          </div>
+        </div>
+
+        {/* ── Body ── */}
+        <div className="px-7 py-5 overflow-y-auto flex flex-col gap-4">
+
+          {/* Stall Number — pre-filled read-only */}
+          <MF label="Stall Number" required>
+            <input className={inputCls + " bg-gray-50 text-gray-500 cursor-not-allowed"} readOnly value={displayName} />
+          </MF>
+
+          {/* Vendor Name */}
+          <MF label="Vendor Name" required>
+            <input
+              className={inputCls}
+              onChange={f("vendorName")}
+              placeholder="Full name of vendor"
+              type="text"
+              value={form.vendorName}
+            />
+          </MF>
+
+          {/* Email + Phone */}
+          <div className="grid grid-cols-2 gap-3">
+            <MF label="Email" required>
+              <input
+                className={inputCls}
+                onChange={f("email")}
+                placeholder="email@example.com"
+                type="email"
+                value={form.email}
+              />
+            </MF>
+            <MF label="Phone" required>
+              <input
+                className={inputCls}
+                onChange={f("phone")}
+                placeholder="09XX-XXX-XXXX"
+                type="tel"
+                value={form.phone}
+              />
+            </MF>
+          </div>
+
+          {/* Stall Type + Monthly Rent */}
+          <div className="grid grid-cols-2 gap-3">
+            <MF label="Stall Type" required>
+              <select className={selectCls} onChange={f("stallType")} value={form.stallType}>
+                <option value="">Select type</option>
+                <option>General Merchandise</option>
+                <option>Fish</option>
+                <option>Meat</option>
+                <option>Produce</option>
+                <option>Dry Goods</option>
+                <option>Food Stall</option>
+              </select>
+            </MF>
+            <MF label="Monthly Rent (₱)" required>
+              <input
+                className={inputCls}
+                min="0"
+                onChange={f("monthlyRent")}
+                placeholder="0.00"
+                type="number"
+                value={form.monthlyRent}
+              />
+            </MF>
+          </div>
+
+          {/* Lease Start + Lease End */}
+          <div className="grid grid-cols-2 gap-3">
+            <MF label="Lease Start" required>
+              <input className={inputCls} onChange={f("leaseStart")} type="date" value={form.leaseStart} />
+            </MF>
+            <MF label="Lease End" required>
+              <input className={inputCls} onChange={f("leaseEnd")} type="date" value={form.leaseEnd} />
+            </MF>
+          </div>
+
+          {/* Status */}
+          <MF label="Status" required>
+            <select className={selectCls} onChange={f("status")} value={form.status}>
+              <option>Available</option>
+              <option>Occupied</option>
+              <option>Reserved</option>
+              <option>Under Maintenance</option>
+              <option>Inactive</option>
+            </select>
+          </MF>
+
+          {/* Payment Status */}
+          <MF label="Payment Status" required>
+            <select className={selectCls} onChange={f("paymentStatus")} value={form.paymentStatus}>
+              <option>Paid</option>
+              <option>Unpaid</option>
+              <option>Overdue</option>
+              <option>Partial</option>
+            </select>
+          </MF>
+
+          {/* Vendor Password */}
+          <MF label="Vendor Password" required>
+            <input
+              className={inputCls}
+              onChange={f("vendorPassword")}
+              placeholder="Set login password for vendor"
+              type="password"
+              value={form.vendorPassword}
+            />
+          </MF>
+        </div>
+
+        {/* ── Footer ── */}
+        <div className="px-7 py-4 border-t border-gray-100 flex gap-3">
+          <button
+            className="flex-1 py-3 rounded-lg text-sm font-bold text-white transition hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!canSave || save.isPending}
+            onClick={() => save.mutate()}
+            style={{ background: "#1e3a8a" }}
+            type="button"
+          >
+            {save.isPending ? "SAVING…" : "SAVE VENDOR"}
+          </button>
+          <button
+            className="flex-1 py-3 rounded-lg text-sm font-bold text-gray-700 border border-gray-200 hover:bg-gray-50 transition"
+            onClick={onClose}
+            type="button"
+          >
+            CANCEL
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+export function StallHeatMap({ stalls, onEdit }: StallHeatMapProps) {
+  const [modal, setModal] = useState<PanelState | null>(null);
+
+  const stallMap = useMemo(() => {
+    const map = new Map<string, AdminStallRecord>();
+    for (const s of stalls) map.set(s.stallNumber, s);
+    return map;
+  }, [stalls]);
+
+  const counts = useMemo(() => {
+    const c: Record<StatusKey, number> = { available: 0, occupied: 0, reserved: 0, under_maintenance: 0, inactive: 0, unknown: 0 };
+    for (const p of STALLS) {
+      const s = stallMap.get(p.num);
+      c[s ? normalizeStatus(s.status) : "unknown"]++;
+    }
+    return c;
+  }, [stallMap]);
+
+  return (
+    <div className="flex flex-col rounded-xl border border-gray-200 bg-white overflow-hidden">
+      {/* Summary bar */}
+      <div className="flex flex-wrap gap-x-5 gap-y-1 px-5 py-2 border-b border-gray-100 bg-gray-50">
+        {(Object.entries(STATUS_STYLES) as [StatusKey, typeof STATUS_STYLES[StatusKey]][])
+          .filter(([key]) => key !== "unknown")
+          .map(([key, s]) => counts[key] > 0 ? (
+            <div className="flex items-center gap-1.5 text-xs" key={key}>
+              <span className="h-2 w-2 rounded-full" style={{ background: s.dot }} />
+              <span className="text-gray-600 font-medium">{s.label}</span>
+              <span className="font-bold" style={{ color: s.text }}>{counts[key]}</span>
+            </div>
+          ) : null)}
+      </div>
+
+      {/* Scrollable map */}
+      <div className="overflow-auto">
+        <div className="relative bg-white" style={{ width: CANVAS_W, height: CANVAS_H }}>
+          {/* Blank tile below stall 1 */}
+          <EmptyTile p={LB_BLANK} />
+
+          {/* All stalls */}
+          {STALLS.map((p, i) => (
+            <BlueprintTile
+              key={`${p.num}-${i}`}
+              onEdit={onEdit}
+              onSelect={(s, num) => setModal({ stall: s, stallNum: num })}
+              placement={p}
+              stall={stallMap.get(p.num)}
+            />
           ))}
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {[
-            { key: "available",         label: "Available" },
-            { key: "occupied",          label: "Occupied" },
-            { key: "reserved",          label: "Reserved" },
-            { key: "under_maintenance", label: "Maintenance" },
-            { key: "inactive",          label: "Inactive" },
-          ].map(({ key, label }) => {
-            const s = STATUS_STYLE[key];
-            return (
-              <span key={key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className={`h-3 w-3 rounded-sm border ${s.border} ${s.bg.split(" ")[0]}`} />
-                {label}
-                {counts[key] ? <span className="ml-0.5 font-semibold text-foreground">{counts[key]}</span> : null}
-              </span>
-            );
-          })}
-        </div>
       </div>
 
-      {/* Map */}
-      <div className="overflow-auto p-6">
-        <div className="min-w-max">
-          <FloorRenderer
-            rows={floorRows}
-            stallMap={stallMap}
-            onEdit={onEdit}
-            onHover={handleHover}
-            onLeave={() => setTooltip(null)}
-          />
-        </div>
-      </div>
+      <Legend />
 
-      {/* Tooltip */}
-      {tooltip ? (
-        <div
-          className="pointer-events-none fixed z-50 min-w-[180px] max-w-[220px] rounded-xl border border-border bg-popover px-4 py-3 shadow-xl text-sm"
-          style={{ left: Math.min(tooltip.x, window.innerWidth - 240), top: tooltip.y }}
-        >
-          <p className="font-semibold text-foreground">{tooltip.stall.stall}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{tooltip.stall.section} · {tooltip.stall.type || "—"}</p>
-          <div className="mt-2 space-y-1 text-xs">
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Rate</span>
-              <span className="font-medium text-foreground">₱{tooltip.stall.rate.toLocaleString()}/mo</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Status</span>
-              <span className={`font-medium ${styleFor(tooltip.stall.status).text}`}>{tooltip.stall.status}</span>
-            </div>
-            {tooltip.stall.notes ? (
-              <div className="pt-1 border-t border-border text-muted-foreground leading-snug">{tooltip.stall.notes}</div>
-            ) : null}
-          </div>
-          {onEdit ? <p className="mt-2 text-[10px] text-primary font-medium">Click to edit</p> : null}
-        </div>
+      {modal ? (
+        <StallModal
+          onClose={() => setModal(null)}
+          onEdit={onEdit}
+          stall={modal.stall}
+          stallNum={modal.stallNum}
+        />
       ) : null}
     </div>
   );
