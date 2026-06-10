@@ -887,34 +887,6 @@ where p.email = 'vendor3@culasi.gov.ph'
   and not exists (select 1 from public.violations vl where vl.vendor_id = v.id);
 
 -- -------------------------------------------------------
--- 12. Lease renewal request
--- -------------------------------------------------------
-insert into public.lease_renewal_requests (lease_id, vendor_id, requested_by, status, notes)
-select l.id, l.vendor_id, p.id, 'pending',
-  'Requesting early renewal before lease expiry next month.'
-from public.leases l
-join public.vendors v on v.id = l.vendor_id
-join public.profiles p on p.id = v.profile_id
-where p.email = 'vendor3@culasi.gov.ph'
-  and l.status = 'active'
-  and not exists (select 1 from public.lease_renewal_requests r where r.lease_id = l.id);
-
--- -------------------------------------------------------
--- 13. Stall support request
--- -------------------------------------------------------
-insert into public.stall_support_requests (vendor_id, lease_id, stall_id, subject, detail, status)
-select v.id, l.id, l.stall_id,
-  'Roof leak above stall',
-  'During heavy rain last week the roof above stall 562 leaked onto goods. Requesting urgent repair.',
-  'open'
-from public.vendors v
-join public.profiles p on p.id = v.profile_id
-join public.leases l on l.vendor_id = v.id
-where p.email = 'vendor@culasi.gov.ph'
-  and l.status = 'active'
-  and not exists (select 1 from public.stall_support_requests sr where sr.vendor_id = v.id);
-
--- -------------------------------------------------------
 -- 14. Notifications
 -- -------------------------------------------------------
 insert into public.notifications (user_id, title, message, type, is_read, link)

@@ -41,20 +41,6 @@ export interface AdminApplicationRecord {
   documentsVerified: number;
 }
 
-export interface AdminDocumentRecord {
-  id: string;
-  applicationId: string;
-  vendorProfileId: string;
-  vendorName: string;
-  document: string;
-  expiry: string;
-  status: string;
-  remarks: string;
-  uploadedAt: string;
-  fileUrl?: string;
-  fileName?: string;
-}
-
 export interface AdminStallRecord {
   id: string;
   sectionId: string;
@@ -65,38 +51,14 @@ export interface AdminStallRecord {
   rate: number;
   status: string;
   notes: string;
-}
-
-export interface AdminAssignmentRecord {
-  leaseId: string;
-  vendorId: string;
-  vendorProfileId: string;
-  vendor: string;
-  stallId: string;
-  stall: string;
-  startDate: string;
-  endDate: string;
-  status: string;
-  encodedBy: string;
-}
-
-export interface AdminLeaseRecord {
-  id: string;
-  vendorId: string;
-  vendorProfileId: string;
-  vendor: string;
-  stallId: string;
-  stall: string;
-  monthlyRate: number;
-  renewalStatus: string;
-  leaseEnd: string;
-  leaseEndIso: string;
-  status: string;
+  currentVendorId: string | null;
+  currentVendorName: string | null;
+  currentVendorEmail: string | null;
+  currentVendorPhone: string | null;
 }
 
 export interface AdminBillingRecord {
   id: string;
-  leaseId: string;
   vendorId: string;
   vendorProfileId: string;
   vendor: string;
@@ -200,6 +162,20 @@ export interface AdminDashboardSnapshot {
   occupancyBySection: Array<{ section: string; occupied: number; available: number }>;
 }
 
+export interface AdminDocumentRecord {
+  id: string;
+  applicationId: string;
+  vendorProfileId: string;
+  vendorName: string;
+  document: string;
+  expiry: string;
+  status: string;
+  remarks: string;
+  uploadedAt: string;
+  fileUrl?: string;
+  fileName?: string;
+}
+
 export interface AdminReportsSnapshot {
   summary: Array<{ label: string; value: string; note: string }>;
   rows: Array<Record<string, string>>;
@@ -277,6 +253,32 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+interface LeaseCoreRecord {
+  id: string;
+  vendor_id: string;
+  stall_id: string | null;
+  status: string;
+  start_date: string;
+  end_date: string;
+  monthly_rate: number;
+}
+
+interface CoreMaps {
+  profiles: Array<{ id: string; full_name: string; email: string; phone: string | null; role: string }>;
+  vendors: Array<{ id: string; profile_id: string; business_name: string; business_type: string | null; status: string }>;
+  sections: Array<{ id: string; name: string; code: string }>;
+  stalls: Array<{ id: string; section_id: string; stall_number: string; stall_type: string; monthly_rate: number; status: string; notes: string | null }>;
+  leases: LeaseCoreRecord[];
+  profileById: Map<string, CoreMaps["profiles"][number]>;
+  vendorById: Map<string, CoreMaps["vendors"][number]>;
+  vendorByProfileId: Map<string, CoreMaps["vendors"][number]>;
+  sectionById: Map<string, CoreMaps["sections"][number]>;
+  stallById: Map<string, CoreMaps["stalls"][number] & { label: string }>;
+  leaseById: Map<string, LeaseCoreRecord>;
+  leaseByVendorId: Map<string, LeaseCoreRecord>;
+  activeLeaseByVendorId: Map<string, LeaseCoreRecord>;
+}
+
 async function logActivity(
   actorId: string,
   action: string,
@@ -309,24 +311,27 @@ async function notifyUser(userId: string, title: string, message: string, type: 
   }
 }
 
-async function loadCoreMaps() {
+async function loadCoreMaps(): Promise<CoreMaps> {
   const db = requireSupabase();
-  const [profilesResult, vendorsResult, sectionsResult, stallsResult] = await Promise.all([
+  const [profilesResult, vendorsResult, sectionsResult, stallsResult, leasesResult] = await Promise.all([
     db.from("profiles").select("id, full_name, email, phone, role"),
     db.from("vendors").select("id, profile_id, business_name, business_type, status"),
     db.from("market_sections").select("id, name, code").order("sort_order", { ascending: true }),
     db.from("stalls").select("id, section_id, stall_number, stall_type, monthly_rate, status, notes"),
+    db.from("leases").select("id, vendor_id, stall_id, status, start_date, end_date, monthly_rate").order("start_date", { ascending: false }),
   ]);
 
   if (profilesResult.error) throw profilesResult.error;
   if (vendorsResult.error) throw vendorsResult.error;
   if (sectionsResult.error) throw sectionsResult.error;
   if (stallsResult.error) throw stallsResult.error;
+  if (leasesResult.error) throw leasesResult.error;
 
   const profiles = profilesResult.data ?? [];
   const vendors = vendorsResult.data ?? [];
   const sections = sectionsResult.data ?? [];
   const stalls = stallsResult.data ?? [];
+  const leases = (leasesResult.data ?? []) as LeaseCoreRecord[];
 
   const profileById = new Map(profiles.map((item) => [item.id, item]));
   const vendorById = new Map(vendors.map((item) => [item.id, item]));
@@ -341,18 +346,42 @@ async function loadCoreMaps() {
       },
     ]),
   );
+  const leaseById = new Map(leases.map((item) => [item.id, item]));
+  const leaseByVendorId = new Map<string, LeaseCoreRecord>();
+  const activeLeaseByVendorId = new Map<string, LeaseCoreRecord>();
+  for (const lease of leases) {
+    if (!leaseByVendorId.has(lease.vendor_id)) {
+      leaseByVendorId.set(lease.vendor_id, lease);
+    }
+    if (lease.status === "active" && !activeLeaseByVendorId.has(lease.vendor_id)) {
+      activeLeaseByVendorId.set(lease.vendor_id, lease);
+    }
+  }
 
-  return { profiles, vendors, sections, stalls, profileById, vendorById, vendorByProfileId, sectionById, stallById };
+  return {
+    profiles,
+    vendors,
+    sections,
+    stalls,
+    leases,
+    profileById,
+    vendorById,
+    vendorByProfileId,
+    sectionById,
+    stallById,
+    leaseById,
+    leaseByVendorId,
+    activeLeaseByVendorId,
+  };
 }
 
 export async function fetchAdminDashboardSnapshot(): Promise<AdminDashboardSnapshot> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const [applicationsResult, documentsResult, leasesResult, billingsResult, paymentsResult, activitiesResult] =
+  const [applicationsResult, documentsResult, billingsResult, paymentsResult, activitiesResult] =
     await Promise.all([
       db.from("applications").select("id, vendor_id, preferred_stall_id, status, updated_at, application_type"),
       db.from("application_documents").select("id, application_id, verification_status"),
-      db.from("leases").select("id, vendor_id, stall_id, status"),
       db.from("billings").select("id, amount_due, amount_paid, status, due_date"),
       db.from("payments").select("id, amount, payment_date"),
       db.from("activity_logs").select("id, action, entity_name, entity_id, metadata, created_at").order("created_at", { ascending: false }).limit(5),
@@ -360,14 +389,12 @@ export async function fetchAdminDashboardSnapshot(): Promise<AdminDashboardSnaps
 
   if (applicationsResult.error) throw applicationsResult.error;
   if (documentsResult.error) throw documentsResult.error;
-  if (leasesResult.error) throw leasesResult.error;
   if (billingsResult.error) throw billingsResult.error;
   if (paymentsResult.error) throw paymentsResult.error;
   if (activitiesResult.error) throw activitiesResult.error;
 
   const applications = applicationsResult.data ?? [];
   const documents = documentsResult.data ?? [];
-  const leases = leasesResult.data ?? [];
   const billings = billingsResult.data ?? [];
   const payments = paymentsResult.data ?? [];
   const activities = activitiesResult.data ?? [];
@@ -437,7 +464,7 @@ export async function fetchAdminDashboardSnapshot(): Promise<AdminDashboardSnaps
       {
         label: "Total stalls",
         value: `${core.stalls.length}`,
-        delta: `${leases.filter((item) => item.status === "active").length} active lease records`,
+        delta: `${core.stalls.length} records available`,
       },
       {
         label: "Occupied stalls",
@@ -522,52 +549,29 @@ export async function fetchStallOptions(status?: string[]): Promise<AdminOption[
     }));
 }
 
-export async function fetchLeaseOptions(): Promise<AdminOption[]> {
-  const leases = await fetchAssignments();
-  return leases.map((item) => ({
-    label: `${item.vendor} - ${item.stall}`,
-    value: item.leaseId,
-  }));
-}
-
 export async function fetchVendorRegistry(): Promise<{
   summary: [string, string][];
   rows: VendorRegistryRecord[];
 }> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const [leasesResult, billingsResult, paymentsResult] = await Promise.all([
-    db.from("leases").select("id, vendor_id, stall_id, status, end_date"),
+  const [billingsResult, paymentsResult] = await Promise.all([
     db.from("billings").select("id, lease_id, amount_due, amount_paid"),
     db.from("payments").select("id, vendor_id, payment_date").order("payment_date", { ascending: false }),
   ]);
 
-  if (leasesResult.error) throw leasesResult.error;
   if (billingsResult.error) throw billingsResult.error;
   if (paymentsResult.error) throw paymentsResult.error;
 
-  const leases = leasesResult.data ?? [];
   const billings = billingsResult.data ?? [];
   const payments = paymentsResult.data ?? [];
-  const activeLeaseByVendor = new Map<string, (typeof leases)[number]>();
-
-  for (const lease of leases) {
-    if (lease.status !== "active") {
-      continue;
-    }
-
-    activeLeaseByVendor.set(lease.vendor_id, lease);
-  }
 
   const balanceByVendor = new Map<string, number>();
   for (const billing of billings) {
-    const lease = leases.find((item) => item.id === billing.lease_id);
+    const lease = core.leaseById.get(billing.lease_id);
     if (!lease) continue;
-    balanceByVendor.set(
-      lease.vendor_id,
-      (balanceByVendor.get(lease.vendor_id) ?? 0) +
-        Math.max(Number(billing.amount_due ?? 0) - Number(billing.amount_paid ?? 0), 0),
-    );
+    const existing = balanceByVendor.get(lease.vendor_id) ?? 0;
+    balanceByVendor.set(lease.vendor_id, existing + Math.max(Number(billing.amount_due ?? 0) - Number(billing.amount_paid ?? 0), 0));
   }
 
   const lastPaymentByVendor = new Map<string, string>();
@@ -579,7 +583,8 @@ export async function fetchVendorRegistry(): Promise<{
 
   const rows = core.vendors.map((vendor) => {
     const profile = core.profileById.get(vendor.profile_id);
-    const lease = activeLeaseByVendor.get(vendor.id);
+    const lease = core.activeLeaseByVendorId.get(vendor.id) ?? core.leaseByVendorId.get(vendor.id);
+    const assignedStall = lease?.stall_id ? core.stallById.get(lease.stall_id)?.label ?? "-" : "-";
 
     return {
       id: vendor.id,
@@ -590,7 +595,7 @@ export async function fetchVendorRegistry(): Promise<{
       businessName: vendor.business_name,
       businessType: vendor.business_type ?? "-",
       status: titleizeStatus(vendor.status),
-      assignedStall: lease?.stall_id ? core.stallById.get(lease.stall_id)?.label ?? "-" : "-",
+      assignedStall,
       balance: balanceByVendor.get(vendor.id) ?? 0,
       lastPayment: lastPaymentByVendor.get(vendor.id) ?? "-",
     };
@@ -600,7 +605,7 @@ export async function fetchVendorRegistry(): Promise<{
     summary: [
       ["Active vendors", `${rows.filter((item) => item.status === "Active").length}`],
       ["Finance holds", `${rows.filter((item) => item.balance > 0).length}`],
-      ["Renewals due", `${leases.filter((item) => item.status === "active").length}`],
+      ["Registered vendors", `${rows.length}`],
     ],
     rows,
   };
@@ -650,24 +655,6 @@ export async function updateVendorRecord(
 
 export async function deleteVendor(actorId: string, vendorId: string) {
   const db = requireSupabase();
-
-  const { data: activeLeases, error: leasesError } = await db
-    .from("leases")
-    .select("stall_id")
-    .eq("vendor_id", vendorId)
-    .eq("status", "active");
-
-  if (leasesError) throw leasesError;
-
-  const activeStallIds = [...new Set((activeLeases ?? []).map((lease) => lease.stall_id).filter(Boolean))];
-  if (activeStallIds.length > 0) {
-    const { error: stallError } = await db
-      .from("stalls")
-      .update({ status: "available" })
-      .in("id", activeStallIds);
-
-    if (stallError) throw stallError;
-  }
 
   const { error } = await db.from("vendors").delete().eq("id", vendorId);
   if (error) throw error;
@@ -1003,18 +990,42 @@ export async function fetchStalls(): Promise<{
   summary: [string, string][];
   rows: AdminStallRecord[];
 }> {
+  const db = requireSupabase();
   const core = await loadCoreMaps();
-  const rows = core.stalls.map((item) => ({
-    id: item.id,
-    sectionId: item.section_id,
-    section: core.sectionById.get(item.section_id)?.name ?? "Unassigned",
-    stallNumber: item.stall_number,
-    stall: `${core.sectionById.get(item.section_id)?.name ?? "Section"} ${item.stall_number}`,
-    type: item.stall_type,
-    rate: Number(item.monthly_rate ?? 0),
-    status: titleizeStatus(item.status),
-    notes: item.notes ?? "",
-  }));
+
+  // Build stall→vendor map via most-recent violation per stall
+  const { data: violationsData } = await db
+    .from("violations")
+    .select("stall_id, vendor_id")
+    .order("created_at", { ascending: false });
+
+  const vendorByStallId = new Map<string, string>();
+  for (const v of violationsData ?? []) {
+    if (v.stall_id && v.vendor_id && !vendorByStallId.has(v.stall_id)) {
+      vendorByStallId.set(v.stall_id, v.vendor_id);
+    }
+  }
+
+  const rows = core.stalls.map((item) => {
+    const vendorId = item.status === "occupied" ? (vendorByStallId.get(item.id) ?? null) : null;
+    const vendor = vendorId ? core.vendorById.get(vendorId) : null;
+    const profile = vendor ? core.profileById.get(vendor.profile_id) : null;
+    return {
+      id: item.id,
+      sectionId: item.section_id,
+      section: core.sectionById.get(item.section_id)?.name ?? "Unassigned",
+      stallNumber: item.stall_number,
+      stall: `${core.sectionById.get(item.section_id)?.name ?? "Section"} ${item.stall_number}`,
+      type: item.stall_type,
+      rate: Number(item.monthly_rate ?? 0),
+      status: titleizeStatus(item.status),
+      notes: item.notes ?? "",
+      currentVendorId: vendorId,
+      currentVendorName: vendor?.business_name ?? profile?.full_name ?? null,
+      currentVendorEmail: profile?.email ?? null,
+      currentVendorPhone: profile?.phone ?? null,
+    };
+  });
 
   return {
     summary: [
@@ -1068,214 +1079,6 @@ export async function deleteStall(actorId: string, stallId: string) {
   await logActivity(actorId, "deleted", "stall", stallId);
 }
 
-export async function fetchAssignments(): Promise<AdminAssignmentRecord[]> {
-  const db = requireSupabase();
-  const core = await loadCoreMaps();
-  const [leasesResult, applicationsResult] = await Promise.all([
-    db.from("leases").select("id, vendor_id, stall_id, start_date, end_date, status, created_by").order("start_date", { ascending: false }),
-    db.from("applications").select("id, vendor_id, preferred_stall_id, status"),
-  ]);
-
-  if (leasesResult.error) throw leasesResult.error;
-  if (applicationsResult.error) throw applicationsResult.error;
-
-  const applications = applicationsResult.data ?? [];
-
-  return (leasesResult.data ?? []).map((item) => {
-    const vendor = core.vendorById.get(item.vendor_id);
-    const profile = vendor ? core.profileById.get(vendor.profile_id) : null;
-    const creator = item.created_by ? core.profileById.get(item.created_by) : null;
-    const relatedApplication = applications.find(
-      (application) => application.vendor_id === item.vendor_id && application.preferred_stall_id === item.stall_id,
-    );
-
-    return {
-      leaseId: item.id,
-      vendorId: item.vendor_id,
-      vendorProfileId: vendor?.profile_id ?? "",
-      vendor: vendor?.business_name ?? profile?.full_name ?? "Unknown vendor",
-      stallId: item.stall_id,
-      stall: core.stallById.get(item.stall_id)?.label ?? "Unassigned",
-      startDate: formatDate(item.start_date),
-      endDate: formatDate(item.end_date),
-      status: titleizeStatus(relatedApplication?.status ?? item.status),
-      encodedBy: creator?.full_name ?? "System",
-    };
-  });
-}
-
-export async function createAssignment(
-  actorId: string,
-  input: {
-    applicationId: string;
-    stallId: string;
-    startDate: string;
-    endDate: string;
-    monthlyRate: number;
-  },
-) {
-  const db = requireSupabase();
-  const { data: application, error: applicationError } = await db
-    .from("applications")
-    .select("id, vendor_id")
-    .eq("id", input.applicationId)
-    .single();
-
-  if (applicationError) throw applicationError;
-
-  const { data: lease, error: leaseError } = await db
-    .from("leases")
-    .insert({
-      vendor_id: application.vendor_id,
-      stall_id: input.stallId,
-      start_date: input.startDate,
-      end_date: input.endDate,
-      monthly_rate: input.monthlyRate,
-      status: "active",
-      renewal_status: "not_due",
-      created_by: actorId,
-    })
-    .select("id")
-    .single();
-
-  if (leaseError) throw leaseError;
-
-  const { error: applicationUpdateError } = await db
-    .from("applications")
-    .update({
-      status: "assigned",
-      preferred_stall_id: input.stallId,
-      reviewed_by: actorId,
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq("id", input.applicationId);
-
-  if (applicationUpdateError) throw applicationUpdateError;
-
-  const { error: stallError } = await db
-    .from("stalls")
-    .update({ status: "occupied" })
-    .eq("id", input.stallId);
-
-  if (stallError) throw stallError;
-
-  const { data: vendor, error: vendorError } = await db
-    .from("vendors")
-    .select("profile_id")
-    .eq("id", application.vendor_id)
-    .single();
-
-  if (vendorError) throw vendorError;
-
-  await notifyUser(
-    vendor.profile_id,
-    "Stall assigned",
-    "Your application has been assigned to a market stall.",
-    "assigned",
-    "/vendor/stall",
-  );
-
-  await logActivity(actorId, "assigned", "lease", lease.id, {
-    applicationId: input.applicationId,
-    stallId: input.stallId,
-  });
-}
-
-export async function fetchLeases(): Promise<{
-  summary: [string, string][];
-  rows: AdminLeaseRecord[];
-}> {
-  const db = requireSupabase();
-  const core = await loadCoreMaps();
-  const { data, error } = await db
-    .from("leases")
-    .select("id, vendor_id, stall_id, monthly_rate, renewal_status, end_date, status")
-    .order("end_date", { ascending: true });
-
-  if (error) throw error;
-
-  const rows = (data ?? []).map((item) => {
-    const vendor = core.vendorById.get(item.vendor_id);
-    const profile = vendor ? core.profileById.get(vendor.profile_id) : null;
-    return {
-      id: item.id,
-      vendorId: item.vendor_id,
-      vendorProfileId: vendor?.profile_id ?? "",
-      vendor: vendor?.business_name ?? profile?.full_name ?? "Unknown vendor",
-      stallId: item.stall_id,
-      stall: core.stallById.get(item.stall_id)?.label ?? "Unassigned",
-      monthlyRate: Number(item.monthly_rate ?? 0),
-      renewalStatus: titleizeStatus(item.renewal_status),
-      leaseEnd: formatDate(item.end_date),
-      leaseEndIso: item.end_date,
-      status: titleizeStatus(item.status),
-    };
-  });
-
-  return {
-    summary: [
-      ["Active leases", `${rows.filter((item) => item.status === "Active").length}`],
-      ["Expiring soon", `${rows.filter((item) => item.status === "Active").length}`],
-      ["Renewal reminders", `${rows.filter((item) => item.renewalStatus === "In Progress").length}`],
-    ],
-    rows,
-  };
-}
-
-export async function updateLease(
-  actorId: string,
-  input: {
-    leaseId: string;
-    endDate: string;
-    monthlyRate: number;
-    status: string;
-    renewalStatus: string;
-  },
-) {
-  const db = requireSupabase();
-  const nextStatus = input.status.toLowerCase().replace(/\s+/g, "_");
-  const nextRenewalStatus = input.renewalStatus.toLowerCase().replace(/\s+/g, "_");
-  const { data: lease, error: leaseError } = await db
-    .from("leases")
-    .update({
-      end_date: input.endDate,
-      monthly_rate: input.monthlyRate,
-      status: nextStatus,
-      renewal_status: nextRenewalStatus,
-    })
-    .eq("id", input.leaseId)
-    .select("stall_id, vendor_id")
-    .single();
-
-  if (leaseError) throw leaseError;
-
-  if (nextStatus === "terminated" || nextStatus === "expired") {
-    const { error: stallError } = await db.from("stalls").update({ status: "available" }).eq("id", lease.stall_id);
-    if (stallError) throw stallError;
-  }
-
-  const { data: vendor, error: vendorError } = await db
-    .from("vendors")
-    .select("profile_id")
-    .eq("id", lease.vendor_id)
-    .single();
-
-  if (vendorError) throw vendorError;
-
-  await notifyUser(
-    vendor.profile_id,
-    "Lease updated",
-    `Your lease status is now ${titleizeStatus(nextStatus)}.`,
-    nextStatus,
-    "/vendor/stall",
-  );
-
-  await logActivity(actorId, "updated", "lease", input.leaseId, {
-    status: nextStatus,
-    renewalStatus: nextRenewalStatus,
-  });
-}
-
 export async function fetchBillings(): Promise<{
   summary: [string, string][];
   rows: AdminBillingRecord[];
@@ -1289,22 +1092,18 @@ export async function fetchBillings(): Promise<{
 
   if (error) throw error;
 
-  const { data: leases, error: leasesError } = await db.from("leases").select("id, vendor_id, stall_id");
-  if (leasesError) throw leasesError;
-  const leaseById = new Map((leases ?? []).map((item) => [item.id, item]));
-
   const rows = (data ?? []).map((item) => {
-    const lease = leaseById.get(item.lease_id);
+    const lease = core.leaseById.get(item.lease_id);
     const vendor = lease ? core.vendorById.get(lease.vendor_id) : null;
     const profile = vendor ? core.profileById.get(vendor.profile_id) : null;
+    const stall = lease?.stall_id ? core.stallById.get(lease.stall_id)?.label ?? "-" : "-";
 
     return {
       id: item.id,
-      leaseId: item.lease_id,
       vendorId: lease?.vendor_id ?? "",
       vendorProfileId: vendor?.profile_id ?? "",
       vendor: vendor?.business_name ?? profile?.full_name ?? "Unknown vendor",
-      stall: lease?.stall_id ? core.stallById.get(lease.stall_id)?.label ?? "-" : "-",
+      stall,
       billingMonth: formatDate(item.billing_month),
       billingMonthIso: item.billing_month,
       amountDue: Number(item.amount_due ?? 0),
@@ -1332,7 +1131,7 @@ export async function fetchBillings(): Promise<{
 export async function createBilling(
   actorId: string,
   input: {
-    leaseId: string;
+    vendorId: string;
     billingMonth: string;
     amountDue: number;
     dueDate: string;
@@ -1344,7 +1143,7 @@ export async function createBilling(
   const { data, error } = await db
     .from("billings")
     .insert({
-      lease_id: input.leaseId,
+      vendor_id: input.vendorId,
       billing_month: input.billingMonth,
       amount_due: input.amountDue,
       due_date: input.dueDate,
@@ -1441,6 +1240,7 @@ export async function createPayment(
   },
 ) {
   const db = requireSupabase();
+  const core = await loadCoreMaps();
   const { data: billing, error: billingError } = await db
     .from("billings")
     .select("id, lease_id")
@@ -1448,14 +1248,12 @@ export async function createPayment(
     .single();
 
   if (billingError) throw billingError;
+  if (!billing) throw new Error("Billing record not found.");
 
-  const { data: lease, error: leaseError } = await db
-    .from("leases")
-    .select("vendor_id")
-    .eq("id", billing.lease_id)
-    .single();
-
-  if (leaseError) throw leaseError;
+  const lease = billing.lease_id ? core.leaseById.get(billing.lease_id) : null;
+  if (!lease) {
+    throw new Error("Selected billing record is not linked to an active lease.");
+  }
 
   const { data, error } = await db
     .from("payments")
@@ -1474,22 +1272,6 @@ export async function createPayment(
     .single();
 
   if (error) throw error;
-
-  const { data: vendor, error: vendorError } = await db
-    .from("vendors")
-    .select("profile_id")
-    .eq("id", lease.vendor_id)
-    .single();
-
-  if (vendorError) throw vendorError;
-
-  await notifyUser(
-    vendor.profile_id,
-    "Payment recorded",
-    `A payment of ${formatCurrency(input.amount)} was posted to your account.`,
-    "paid",
-    "/vendor/billing",
-  );
 
   await logActivity(actorId, "recorded", "payment", data.id, {
     billingId: input.billingId,
@@ -1790,7 +1572,7 @@ export async function saveSystemSetting(
 }
 
 export async function fetchReports(filters: ReportFiltersInput): Promise<AdminReportsSnapshot> {
-  const [billings, leases, stalls] = await Promise.all([fetchBillings(), fetchLeases(), fetchStalls()]);
+  const [billings, stalls] = await Promise.all([fetchBillings(), fetchStalls()]);
 
   const filteredBillings = billings.rows.filter((item) => {
     const inStatus = filters.paymentStatus === "Any status" || item.status === filters.paymentStatus;
@@ -1799,10 +1581,6 @@ export async function fetchReports(filters: ReportFiltersInput): Promise<AdminRe
 
   const filteredStalls = stalls.rows.filter((item) => {
     return filters.section === "All sections" || item.section === filters.section;
-  });
-
-  const expiringLeases = leases.rows.filter((item) => {
-    return item.status === "Active";
   });
 
   return {
@@ -1821,11 +1599,6 @@ export async function fetchReports(filters: ReportFiltersInput): Promise<AdminRe
         ),
         note: `Filtered by ${filters.paymentStatus}`,
       },
-      {
-        label: "Expiring Contracts",
-        value: `${expiringLeases.length}`,
-        note: `As of ${formatDate(todayIso())}`,
-      },
     ],
     rows: [
       {
@@ -1840,13 +1613,6 @@ export async function fetchReports(filters: ReportFiltersInput): Promise<AdminRe
         filter_scope: filters.paymentStatus,
         generated_at: formatDateTime(new Date().toISOString()),
         coverage: `${filteredBillings.length} billing rows`,
-        status: "Ready",
-      },
-      {
-        report: "Lease Expiry",
-        filter_scope: `${filters.dateFrom} to ${filters.dateTo}`,
-        generated_at: formatDateTime(new Date().toISOString()),
-        coverage: `${expiringLeases.length} leases`,
         status: "Ready",
       },
     ],

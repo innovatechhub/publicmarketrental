@@ -133,20 +133,6 @@ create table public.application_documents (
   unique (application_id, requirement_id)
 );
 
-create table public.leases (
-  id uuid primary key default gen_random_uuid(),
-  vendor_id uuid not null references public.vendors(id) on delete cascade,
-  stall_id uuid not null references public.stalls(id) on delete restrict,
-  start_date date not null,
-  end_date date not null,
-  monthly_rate numeric(12,2) not null,
-  status public.lease_status not null default 'draft',
-  renewal_status public.renewal_status not null default 'not_due',
-  created_by uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
-);
-
 create table public.billings (
   id uuid primary key default gen_random_uuid(),
   lease_id uuid not null references public.leases(id) on delete cascade,
@@ -172,19 +158,6 @@ create table public.payments (
   submitted_by_vendor boolean not null default false,
   recorded_by uuid references public.profiles(id) on delete set null,
   notes text,
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
-);
-
-create table public.lease_renewal_requests (
-  id uuid primary key default gen_random_uuid(),
-  lease_id uuid not null references public.leases(id) on delete cascade,
-  vendor_id uuid not null references public.vendors(id) on delete cascade,
-  requested_by uuid not null references public.profiles(id) on delete cascade,
-  status public.renewal_request_status not null default 'pending',
-  notes text,
-  reviewed_by uuid references public.profiles(id) on delete set null,
-  reviewed_at timestamptz,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -251,14 +224,9 @@ create index idx_vendors_profile_id on public.vendors(profile_id);
 create index idx_stalls_section_status on public.stalls(section_id, status);
 create index idx_applications_vendor_status on public.applications(vendor_id, status);
 create index idx_documents_application_status on public.application_documents(application_id, verification_status);
-create index idx_leases_vendor_status on public.leases(vendor_id, status);
-create index idx_billings_lease_status on public.billings(lease_id, status);
 create index idx_payments_vendor_date on public.payments(vendor_id, payment_date desc);
 create index idx_notifications_user_read on public.notifications(user_id, is_read);
-create index idx_renewal_requests_vendor_status on public.lease_renewal_requests(vendor_id, status);
 create index idx_support_requests_vendor_status on public.stall_support_requests(vendor_id, status);
-create unique index idx_renewal_requests_pending_unique on public.lease_renewal_requests(lease_id)
-where status = 'pending';
 
 create trigger set_profiles_updated_at before update on public.profiles
 for each row execute function public.set_updated_at();
@@ -276,15 +244,11 @@ create trigger set_applications_updated_at before update on public.applications
 for each row execute function public.set_updated_at();
 create trigger set_application_documents_updated_at before update on public.application_documents
 for each row execute function public.set_updated_at();
-create trigger set_leases_updated_at before update on public.leases
-for each row execute function public.set_updated_at();
 create trigger set_billings_updated_at before update on public.billings
 for each row execute function public.set_updated_at();
 create trigger set_payments_updated_at before update on public.payments
 for each row execute function public.set_updated_at();
 create trigger set_violations_updated_at before update on public.violations
-for each row execute function public.set_updated_at();
-create trigger set_lease_renewal_requests_updated_at before update on public.lease_renewal_requests
 for each row execute function public.set_updated_at();
 create trigger set_stall_support_requests_updated_at before update on public.stall_support_requests
 for each row execute function public.set_updated_at();
@@ -357,25 +321,6 @@ for each row execute function public.sync_billing_totals_from_payments();
 create trigger sync_billing_totals_after_payment_delete
 after delete on public.payments
 for each row execute function public.sync_billing_totals_from_payments();
-
-create or replace function public.mark_lease_renewal_in_progress()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  update public.leases
-  set renewal_status = 'in_progress'::public.renewal_status
-  where id = new.lease_id;
-
-  return new;
-end;
-$$;
-
-create trigger set_lease_renewal_status_after_request_insert
-after insert on public.lease_renewal_requests
-for each row execute function public.mark_lease_renewal_in_progress();
 
 create or replace function public.handle_new_user()
 returns trigger
@@ -661,17 +606,6 @@ begin
   if not public.owns_vendor(new.vendor_id) then
     raise exception 'You can only record payments for your own vendor account.';
   end if;
-
-  if not exists (
-    select 1
-    from public.billings b
-    join public.leases l on l.id = b.lease_id
-    where b.id = new.billing_id
-      and l.vendor_id = new.vendor_id
-  ) then
-    raise exception 'The selected billing record does not belong to your vendor account.';
-  end if;
-
   if new.submitted_by_vendor is not true or new.recorded_by is not null then
     raise exception 'Vendor payment entries must be marked as vendor-submitted only.';
   end if;
@@ -683,44 +617,6 @@ $$;
 create trigger guard_payment_insert_before_write
 before insert on public.payments
 for each row execute function public.guard_payment_insert();
-
-create or replace function public.guard_lease_renewal_request_insert()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if auth.uid() is null or auth.role() = 'service_role' or public.is_back_office() then
-    return new;
-  end if;
-
-  if new.requested_by <> auth.uid() or not public.owns_vendor(new.vendor_id) then
-    raise exception 'You can only request renewal for your own vendor account.';
-  end if;
-
-  if not exists (
-    select 1
-    from public.leases
-    where id = new.lease_id
-      and vendor_id = new.vendor_id
-  ) then
-    raise exception 'The selected lease does not belong to your vendor account.';
-  end if;
-
-  if new.status <> 'pending'::public.renewal_request_status
-    or new.reviewed_by is not null
-    or new.reviewed_at is not null then
-    raise exception 'Renewal requests must start as pending and unreviewed.';
-  end if;
-
-  return new;
-end;
-$$;
-
-create trigger guard_lease_renewal_request_insert_before_write
-before insert on public.lease_renewal_requests
-for each row execute function public.guard_lease_renewal_request_insert();
 
 create or replace function public.guard_stall_support_request_write()
 returns trigger
@@ -819,10 +715,8 @@ alter table public.stalls enable row level security;
 alter table public.document_requirements enable row level security;
 alter table public.applications enable row level security;
 alter table public.application_documents enable row level security;
-alter table public.leases enable row level security;
 alter table public.billings enable row level security;
 alter table public.payments enable row level security;
-alter table public.lease_renewal_requests enable row level security;
 alter table public.stall_support_requests enable row level security;
 alter table public.violations enable row level security;
 alter table public.notifications enable row level security;
@@ -940,23 +834,14 @@ with check (
   or public.current_user_role() in ('super_admin', 'admin')
 );
 
-create policy "leases_select_owner_or_back_office" on public.leases
-for select using (
-  vendor_id in (select id from public.vendors where profile_id = auth.uid())
-  or public.is_back_office()
-);
-
-create policy "leases_manage_admin" on public.leases
-for all using (public.current_user_role() in ('super_admin', 'admin'))
-with check (public.current_user_role() in ('super_admin', 'admin'));
-
 create policy "billings_select_owner_or_back_office" on public.billings
 for select using (
-  lease_id in (
-    select l.id
+  exists (
+    select 1
     from public.leases l
     join public.vendors v on v.id = l.vendor_id
-    where v.profile_id = auth.uid()
+    where l.id = lease_id
+      and v.profile_id = auth.uid()
   )
   or public.is_back_office()
 );
@@ -1007,25 +892,6 @@ with check (user_id = auth.uid() or public.is_back_office());
 
 create policy "notifications_delete_own_or_back_office" on public.notifications
 for delete using (user_id = auth.uid() or public.is_back_office());
-
-create policy "lease_renewal_requests_select_owner_or_back_office" on public.lease_renewal_requests
-for select using (
-  vendor_id in (select id from public.vendors where profile_id = auth.uid())
-  or public.is_back_office()
-);
-
-create policy "lease_renewal_requests_insert_owner_or_back_office" on public.lease_renewal_requests
-for insert with check (
-  vendor_id in (select id from public.vendors where profile_id = auth.uid())
-  or public.is_back_office()
-);
-
-create policy "lease_renewal_requests_update_back_office" on public.lease_renewal_requests
-for update using (public.is_back_office())
-with check (public.is_back_office());
-
-create policy "lease_renewal_requests_delete_back_office" on public.lease_renewal_requests
-for delete using (public.is_back_office());
 
 create policy "stall_support_requests_select_owner_or_back_office" on public.stall_support_requests
 for select using (

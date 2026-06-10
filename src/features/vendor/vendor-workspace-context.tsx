@@ -21,6 +21,7 @@ import {
   submitVendorApplication,
   submitVendorSupportRequest,
   toggleVendorNotificationRead,
+  type VendorStallInfo,
 } from "@/integrations/supabase/vendor-service";
 
 export type VendorApplicationStatus =
@@ -90,25 +91,14 @@ export interface VendorSupportRequest {
   status: VendorSupportRequestStatus;
 }
 
-export interface VendorStallRecord {
-  stall: string;
-  section: string;
-  type: string;
-  rate: string;
-  leaseStart: string;
-  leaseEnd: string;
-  notes: string;
-  renewalStatus: "Not Requested" | "Pending Renewal Review";
-  renewalRequestedAt?: string;
-  supportRequests: VendorSupportRequest[];
-}
+export type VendorStallRecord = VendorStallInfo;
 
 interface VendorWorkspaceState {
   applications: VendorApplication[];
   documents: VendorDocumentRecord[];
   billings: VendorBillingRecord[];
   notifications: VendorNotificationRecord[];
-  stall: VendorStallRecord;
+  stall: VendorStallInfo;
 }
 
 interface VendorProfileInput {

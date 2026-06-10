@@ -72,7 +72,7 @@ export interface VendorSupportRequestRecord {
   status: VendorSupportStatusLabel;
 }
 
-export interface VendorStallRecord {
+export interface VendorStallInfo {
   stall: string;
   section: string;
   type: string;
@@ -82,7 +82,7 @@ export interface VendorStallRecord {
   notes: string;
   renewalStatus: "Not Requested" | "Pending Renewal Review";
   renewalRequestedAt?: string;
-  supportRequests: VendorSupportRequestRecord[];
+  supportRequests: { id: string; subject: string; detail: string; requestedAt: string; status: string }[];
 }
 
 export interface VendorWorkspaceSnapshot {
@@ -90,7 +90,7 @@ export interface VendorWorkspaceSnapshot {
   documents: VendorDocumentRecord[];
   billings: VendorBillingRecord[];
   notifications: VendorNotificationRecord[];
-  stall: VendorStallRecord;
+  stall: VendorStallInfo;
 }
 
 function requireSupabase() {
@@ -210,22 +210,6 @@ async function getVendor(profileId: string) {
   return data;
 }
 
-async function getLatestLease(vendorId: string) {
-  const db = requireSupabase();
-  const { data, error } = await db
-    .from("leases")
-    .select("id, stall_id, start_date, end_date, monthly_rate, renewal_status, status")
-    .eq("vendor_id", vendorId)
-    .order("start_date", { ascending: false })
-    .limit(1);
-
-  if (error) {
-    throw error;
-  }
-
-  return data?.[0] ?? null;
-}
-
 async function createNotification(profileId: string, title: string, detail: string, status: string, link: string) {
   const db = requireSupabase();
   const { error } = await db.from("notifications").insert({
@@ -244,9 +228,8 @@ async function createNotification(profileId: string, title: string, detail: stri
 export async function fetchVendorWorkspace(profileId: string): Promise<VendorWorkspaceSnapshot> {
   const db = requireSupabase();
   const vendor = await getVendor(profileId);
-  const latestLease = await getLatestLease(vendor.id);
 
-  const [applicationsResult, notificationsResult, supportResult, renewalResult] = await Promise.all([
+  const [applicationsResult, notificationsResult, supportResult] = await Promise.all([
     db
       .from("applications")
       .select("id, preferred_stall_id, business_type, preferred_section, preferred_stall_type, status, submitted_at, updated_at, rejection_reason, remarks")
@@ -262,26 +245,17 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
       .select("id, subject, detail, status, created_at")
       .eq("vendor_id", vendor.id)
       .order("created_at", { ascending: false }),
-    latestLease
-      ? db
-          .from("lease_renewal_requests")
-          .select("id, status, created_at")
-          .eq("lease_id", latestLease.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (applicationsResult.error) throw applicationsResult.error;
   if (notificationsResult.error) throw notificationsResult.error;
   if (supportResult.error) throw supportResult.error;
-  if (renewalResult.error) throw renewalResult.error;
 
   const applications = applicationsResult.data ?? [];
   const preferredStallIds = applications
     .map((item) => item.preferred_stall_id)
     .filter((item): item is string => Boolean(item));
-  const activeStallIds = latestLease?.stall_id ? [latestLease.stall_id] : [];
+  const activeStallIds: string[] = [];
   const allStallIds = [...new Set([...preferredStallIds, ...activeStallIds])];
 
   const [stallsResult, requirementsResult, documentsResult, paymentsResult] = await Promise.all([
@@ -299,13 +273,10 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
           .in("application_id", applications.map((item) => item.id))
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
-    latestLease
-      ? db
+      db
           .from("payments")
           .select("billing_id, payment_date, payment_method, receipt_number")
           .eq("vendor_id", vendor.id)
-          .order("payment_date", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (stallsResult.error) throw stallsResult.error;
@@ -318,13 +289,10 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
     sectionIds.length > 0
       ? db.from("market_sections").select("id, name").in("id", sectionIds)
       : Promise.resolve({ data: [], error: null }),
-    latestLease
-      ? db
+      db
           .from("billings")
           .select("id, billing_month, amount_due, amount_paid, due_date, status")
-          .eq("lease_id", latestLease.id)
           .order("billing_month", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (sectionsResult.error) throw sectionsResult.error;
@@ -425,34 +393,43 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
     read: item.is_read,
   }));
 
-  const activeStall = latestLease?.stall_id ? stallsById.get(latestLease.stall_id) : null;
-  const latestRenewal = renewalResult.data?.[0] ?? null;
-  const stall: VendorStallRecord = {
-    stall: activeStall ? `${activeStall.sectionName} ${activeStall.stall_number}` : "No stall assigned",
-    section: activeStall?.sectionName ?? "-",
-    type: activeStall?.stall_type ?? "-",
-    rate: latestLease ? `${formatCurrency(Number(latestLease.monthly_rate ?? 0))} / month` : "-",
-    leaseStart: latestLease ? formatDisplayDate(latestLease.start_date) : "-",
-    leaseEnd: latestLease ? formatDisplayDate(latestLease.end_date) : "-",
-    notes: activeStall?.notes ?? "No active lease notes available.",
-    renewalStatus: latestRenewal?.status === "pending" ? "Pending Renewal Review" : "Not Requested",
-    renewalRequestedAt: latestRenewal?.created_at ? formatDisplayDate(latestRenewal.created_at) : undefined,
-    supportRequests: (supportResult.data ?? []).map((item) => ({
-      id: item.id,
-      subject: item.subject,
-      detail: item.detail,
-      requestedAt: formatDisplayDate(item.created_at),
-      status: mapSupportStatus(item.status),
-    })),
-  };
+  const mappedSupportRequests = (supportResult.data ?? []).map((item) => ({
+    id: item.id,
+    subject: item.subject,
+    detail: item.detail,
+    requestedAt: formatDisplayDate(item.created_at),
+    status: mapSupportStatus(item.status),
+  }));
 
   return {
     applications: mappedApplications,
     documents: mappedDocuments,
     billings: mappedBillings,
     notifications: mappedNotifications,
-    stall,
+    stall: {
+      stall: "No stall assigned",
+      section: "-",
+      type: "-",
+      rate: "-",
+      leaseStart: "-",
+      leaseEnd: "-",
+      notes: "-",
+      renewalStatus: "Not Requested" as const,
+      supportRequests: mappedSupportRequests,
+    },
   };
+}
+
+export async function requestVendorLeaseRenewal(profileId: string): Promise<void> {
+  const db = requireSupabase();
+  const vendor = await getVendor(profileId);
+  const { error } = await db.from("stall_support_requests").insert({
+    vendor_id: vendor.id,
+    subject: "Lease Renewal Request",
+    detail: "Vendor has requested lease renewal.",
+    status: "open",
+  });
+  if (error) throw error;
 }
 
 export async function saveVendorApplication(
@@ -686,58 +663,16 @@ export async function recordVendorPayment(
   );
 }
 
-export async function requestVendorLeaseRenewal(profileId: string) {
-  const db = requireSupabase();
-  const vendor = await getVendor(profileId);
-  const latestLease = await getLatestLease(vendor.id);
-
-  if (!latestLease) {
-    throw new Error("No active lease is available for renewal.");
-  }
-
-  const { data: existingRequest, error: existingRequestError } = await db
-    .from("lease_renewal_requests")
-    .select("id")
-    .eq("lease_id", latestLease.id)
-    .eq("status", "pending")
-    .limit(1);
-
-  if (existingRequestError) throw existingRequestError;
-
-  if ((existingRequest ?? []).length > 0) {
-    return;
-  }
-
-  const { error } = await db.from("lease_renewal_requests").insert({
-    lease_id: latestLease.id,
-    vendor_id: vendor.id,
-    requested_by: profileId,
-    notes: "Submitted from vendor portal",
-  });
-
-  if (error) throw error;
-
-  await createNotification(
-    profileId,
-    "Renewal request received",
-    "Your lease renewal request was sent to the market administrator.",
-    "under_review",
-    "/vendor/stall",
-  );
-}
-
 export async function submitVendorSupportRequest(
   profileId: string,
   input: { subject: string; detail: string },
 ) {
   const db = requireSupabase();
   const vendor = await getVendor(profileId);
-  const latestLease = await getLatestLease(vendor.id);
 
   const { error } = await db.from("stall_support_requests").insert({
     vendor_id: vendor.id,
-    lease_id: latestLease?.id ?? null,
-    stall_id: latestLease?.stall_id ?? null,
+    stall_id: null,
     subject: input.subject,
     detail: input.detail,
   });

@@ -33,12 +33,6 @@ const AdminApplicationsPage = lazy(() =>
 const AdminStallsPage = lazy(() =>
   import("@/pages/admin-pages").then((module) => ({ default: module.AdminStallsPage })),
 );
-const AdminAssignmentsPage = lazy(() =>
-  import("@/pages/admin-pages").then((module) => ({ default: module.AdminAssignmentsPage })),
-);
-const AdminLeasesPage = lazy(() =>
-  import("@/pages/admin-pages").then((module) => ({ default: module.AdminLeasesPage })),
-);
 const AdminBillingPage = lazy(() =>
   import("@/pages/admin-pages").then((module) => ({ default: module.AdminBillingPage })),
 );
@@ -70,7 +64,7 @@ const VendorApplicationsPage = lazy(() =>
   import("@/pages/vendor-pages").then((module) => ({ default: module.VendorApplicationsPage })),
 );
 const VendorStallPage = lazy(() =>
-  import("@/pages/vendor-pages").then((module) => ({ default: module.VendorStallPage })),
+  import("@/pages/vendor-pages").then((module) => ({ default: module.VendorBillingPage })),
 );
 const VendorBillingPage = lazy(() =>
   import("@/pages/vendor-pages").then((module) => ({ default: module.VendorBillingPage })),
@@ -123,22 +117,6 @@ export function AppRouter() {
                 element={
                   <RestrictedPage roles={["super_admin", "admin"]}>
                     <AdminStallsPage />
-                  </RestrictedPage>
-                }
-              />
-              <Route
-                path="assignments"
-                element={
-                  <RestrictedPage roles={["super_admin", "admin"]}>
-                    <AdminAssignmentsPage />
-                  </RestrictedPage>
-                }
-              />
-              <Route
-                path="leases"
-                element={
-                  <RestrictedPage roles={["super_admin", "admin"]}>
-                    <AdminLeasesPage />
                   </RestrictedPage>
                 }
               />

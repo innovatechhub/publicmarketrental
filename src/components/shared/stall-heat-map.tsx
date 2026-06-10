@@ -440,7 +440,7 @@ const inputCls =
   "w-full rounded-lg border border-gray-200 bg-[#f8faff] px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#1e3a8a] focus:bg-white transition";
 const selectCls = inputCls + " cursor-pointer";
 
-// ── ADD NEW VENDOR modal ──────────────────────────────────────────────────────
+// ── Stall modal — shows occupant info if occupied, add-vendor form if available ─
 function StallModal({ stall, stallNum, onClose }: {
   stall: AdminStallRecord | null;
   stallNum: string;
@@ -451,6 +451,7 @@ function StallModal({ stall, stallNum, onClose }: {
   const queryClient = useQueryClient();
 
   const displayName = stall ? stall.stall : `Stall ${stallNum}`;
+  const isOccupied = stall ? normalizeStatus(stall.status) === "occupied" : false;
 
   const [form, setForm] = useState({
     vendorName: "",
@@ -472,15 +473,14 @@ function StallModal({ stall, stallNum, onClose }: {
   const save = useMutation({
     mutationFn: () => {
       if (!stall) return Promise.reject(new Error("Stall record not found in database."));
-      const stallRecord = stall;
       return saveStall(user!.id, {
-        stallId: stallRecord.id,
-        sectionId: stallRecord.sectionId,
-        stallNumber: stallRecord.stallNumber,
+        stallId: stall.id,
+        sectionId: stall.sectionId,
+        stallNumber: stall.stallNumber,
         stallType: form.stallType,
         monthlyRate: Number(form.monthlyRent),
         status: form.status,
-        notes: stallRecord.notes,
+        notes: stall.notes,
       });
     },
     onSuccess: async () => {
@@ -497,158 +497,145 @@ function StallModal({ stall, stallNum, onClose }: {
   const canSave = form.vendorName && form.email && form.stallType && form.monthlyRent && form.leaseStart && form.leaseEnd;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
         className="relative bg-white rounded-xl shadow-2xl w-full overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 500, maxHeight: "92vh", display: "flex", flexDirection: "column" }}
       >
         {/* ── Header ── */}
-        <div className="px-7 pt-6 pb-4 border-b-2 border-[#1e3a8a]">
+        <div className="px-7 pt-6 pb-4 border-b-2" style={{ borderColor: isOccupied ? "#dc2626" : "#1e3a8a" }}>
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-[#1e3a8a] tracking-wide">ADD NEW VENDOR</h2>
-            <button
-              className="text-gray-400 hover:text-gray-600 transition text-xl font-light leading-none"
-              onClick={onClose}
-              type="button"
-            >
-              ×
-            </button>
+            <h2 className="text-xl font-bold tracking-wide" style={{ color: isOccupied ? "#dc2626" : "#1e3a8a" }}>
+              {isOccupied ? "CURRENT OCCUPANT" : "ADD NEW VENDOR"}
+            </h2>
+            <button className="text-gray-400 hover:text-gray-600 transition text-xl font-light leading-none" onClick={onClose} type="button">×</button>
           </div>
         </div>
 
         {/* ── Body ── */}
         <div className="px-7 py-5 overflow-y-auto flex flex-col gap-4">
-
-          {/* Stall Number — pre-filled read-only */}
-          <MF label="Stall Number" required>
+          <MF label="Stall Number">
             <input className={inputCls + " bg-gray-50 text-gray-500 cursor-not-allowed"} readOnly value={displayName} />
           </MF>
 
-          {/* Vendor Name */}
-          <MF label="Vendor Name" required>
-            <input
-              className={inputCls}
-              onChange={f("vendorName")}
-              placeholder="Full name of vendor"
-              type="text"
-              value={form.vendorName}
-            />
-          </MF>
+          {isOccupied ? (
+            /* ── Occupied: show read-only current leaser info ── */
+            <>
+              <div style={{ background: "#fff7f7", border: "1px solid #fecaca", borderRadius: 10, padding: "14px 16px" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>This stall is currently occupied</p>
+                <div className="flex flex-col gap-3">
+                  <InfoRow label="Vendor / Leaseholder" value={stall?.currentVendorName ?? "—"} />
+                  <InfoRow label="Email" value={stall?.currentVendorEmail ?? "—"} />
+                  <InfoRow label="Phone" value={stall?.currentVendorPhone ?? "—"} />
+                  <InfoRow label="Stall Type" value={stall?.type ?? "—"} />
+                  <InfoRow label="Monthly Rate" value={stall?.rate ? `₱${stall.rate.toLocaleString()}` : "—"} />
+                  <InfoRow label="Status" value={stall?.status ?? "—"} highlight />
+                </div>
+              </div>
+              <p style={{ fontSize: 12, color: "#6b7280", textAlign: "center" }}>
+                To reassign this stall, first change its status to <strong>Available</strong> via the Edit Stall action.
+              </p>
+            </>
+          ) : (
+            /* ── Available: show add-vendor form ── */
+            <>
+              <MF label="Vendor Name" required>
+                <input className={inputCls} onChange={f("vendorName")} placeholder="Full name of vendor" type="text" value={form.vendorName} />
+              </MF>
 
-          {/* Email + Phone */}
-          <div className="grid grid-cols-2 gap-3">
-            <MF label="Email" required>
-              <input
-                className={inputCls}
-                onChange={f("email")}
-                placeholder="email@example.com"
-                type="email"
-                value={form.email}
-              />
-            </MF>
-            <MF label="Phone" required>
-              <input
-                className={inputCls}
-                onChange={f("phone")}
-                placeholder="09XX-XXX-XXXX"
-                type="tel"
-                value={form.phone}
-              />
-            </MF>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <MF label="Email" required>
+                  <input className={inputCls} onChange={f("email")} placeholder="email@example.com" type="email" value={form.email} />
+                </MF>
+                <MF label="Phone" required>
+                  <input className={inputCls} onChange={f("phone")} placeholder="09XX-XXX-XXXX" type="tel" value={form.phone} />
+                </MF>
+              </div>
 
-          {/* Stall Type + Monthly Rent */}
-          <div className="grid grid-cols-2 gap-3">
-            <MF label="Stall Type" required>
-              <select className={selectCls} onChange={f("stallType")} value={form.stallType}>
-                <option value="">Select type</option>
-                <option>General Merchandise</option>
-                <option>Fish</option>
-                <option>Meat</option>
-                <option>Produce</option>
-                <option>Dry Goods</option>
-                <option>Food Stall</option>
-              </select>
-            </MF>
-            <MF label="Monthly Rent (₱)" required>
-              <input
-                className={inputCls}
-                min="0"
-                onChange={f("monthlyRent")}
-                placeholder="0.00"
-                type="number"
-                value={form.monthlyRent}
-              />
-            </MF>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <MF label="Stall Type" required>
+                  <select className={selectCls} onChange={f("stallType")} value={form.stallType}>
+                    <option value="">Select type</option>
+                    <option>General Merchandise</option>
+                    <option>Fish</option>
+                    <option>Meat</option>
+                    <option>Produce</option>
+                    <option>Dry Goods</option>
+                    <option>Food Stall</option>
+                  </select>
+                </MF>
+                <MF label="Monthly Rent (₱)" required>
+                  <input className={inputCls} min="0" onChange={f("monthlyRent")} placeholder="0.00" type="number" value={form.monthlyRent} />
+                </MF>
+              </div>
 
-          {/* Lease Start + Lease End */}
-          <div className="grid grid-cols-2 gap-3">
-            <MF label="Lease Start" required>
-              <input className={inputCls} onChange={f("leaseStart")} type="date" value={form.leaseStart} />
-            </MF>
-            <MF label="Lease End" required>
-              <input className={inputCls} onChange={f("leaseEnd")} type="date" value={form.leaseEnd} />
-            </MF>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <MF label="Lease Start" required>
+                  <input className={inputCls} onChange={f("leaseStart")} type="date" value={form.leaseStart} />
+                </MF>
+                <MF label="Lease End" required>
+                  <input className={inputCls} onChange={f("leaseEnd")} type="date" value={form.leaseEnd} />
+                </MF>
+              </div>
 
-          {/* Status */}
-          <MF label="Status" required>
-            <select className={selectCls} onChange={f("status")} value={form.status}>
-              <option>Available</option>
-              <option>Occupied</option>
-              <option>Reserved</option>
-              <option>Under Maintenance</option>
-              <option>Inactive</option>
-            </select>
-          </MF>
+              <MF label="Status" required>
+                <select className={selectCls} onChange={f("status")} value={form.status}>
+                  <option>Available</option>
+                  <option>Occupied</option>
+                  <option>Reserved</option>
+                  <option>Under Maintenance</option>
+                  <option>Inactive</option>
+                </select>
+              </MF>
 
-          {/* Payment Status */}
-          <MF label="Payment Status" required>
-            <select className={selectCls} onChange={f("paymentStatus")} value={form.paymentStatus}>
-              <option>Paid</option>
-              <option>Unpaid</option>
-              <option>Overdue</option>
-              <option>Partial</option>
-            </select>
-          </MF>
+              <MF label="Payment Status" required>
+                <select className={selectCls} onChange={f("paymentStatus")} value={form.paymentStatus}>
+                  <option>Paid</option>
+                  <option>Unpaid</option>
+                  <option>Overdue</option>
+                  <option>Partial</option>
+                </select>
+              </MF>
 
-          {/* Vendor Password */}
-          <MF label="Vendor Password" required>
-            <input
-              className={inputCls}
-              onChange={f("vendorPassword")}
-              placeholder="Set login password for vendor"
-              type="password"
-              value={form.vendorPassword}
-            />
-          </MF>
+              <MF label="Vendor Password" required>
+                <input className={inputCls} onChange={f("vendorPassword")} placeholder="Set login password for vendor" type="password" value={form.vendorPassword} />
+              </MF>
+            </>
+          )}
         </div>
 
         {/* ── Footer ── */}
         <div className="px-7 py-4 border-t border-gray-100 flex gap-3">
-          <button
-            className="flex-1 py-3 rounded-lg text-sm font-bold text-white transition hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={!canSave || save.isPending}
-            onClick={() => save.mutate()}
-            style={{ background: "#1e3a8a" }}
-            type="button"
-          >
-            {save.isPending ? "SAVING…" : "SAVE VENDOR"}
-          </button>
+          {!isOccupied && (
+            <button
+              className="flex-1 py-3 rounded-lg text-sm font-bold text-white transition hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!canSave || save.isPending}
+              onClick={() => save.mutate()}
+              style={{ background: "#1e3a8a" }}
+              type="button"
+            >
+              {save.isPending ? "SAVING…" : "SAVE VENDOR"}
+            </button>
+          )}
           <button
             className="flex-1 py-3 rounded-lg text-sm font-bold text-gray-700 border border-gray-200 hover:bg-gray-50 transition"
             onClick={onClose}
             type="button"
           >
-            CANCEL
+            {isOccupied ? "CLOSE" : "CANCEL"}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 500, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: highlight ? 700 : 600, color: highlight ? "#dc2626" : "#111827", textAlign: "right" }}>{value}</span>
     </div>
   );
 }

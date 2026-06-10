@@ -39,8 +39,6 @@ import { toast } from "sonner";
 import { ReportFilters } from "@/features/reports/report-filters";
 import { useAuth } from "@/features/auth/auth-context";
 import {
-  createAdminNotification,
-  createAssignment,
   createBilling,
   createPayment,
   createWalkInApplication,
@@ -49,10 +47,7 @@ import {
   fetchAdminDashboardSnapshot,
   fetchApplicationDocuments,
   fetchApplications,
-  fetchAssignments,
   fetchBillings,
-  fetchLeaseOptions,
-  fetchLeases,
   fetchNotifications,
   fetchPayments,
   fetchReports,
@@ -73,12 +68,12 @@ import {
   updateApplicationReview,
   updateBilling,
   updateDocumentVerification,
-  updateLease,
   updateStaffRecord,
   updateVendorRecord,
   type AdminOption,
   type AdminStallRecord,
   type ReportFiltersInput,
+  createAdminNotification,
   deleteAdminNotification,
   deleteViolation,
 } from "@/integrations/supabase/admin-service";
@@ -111,8 +106,6 @@ const queryKeys = {
   applications: ["admin-applications"],
   applicationDocuments: (id: string) => ["admin-application-documents", id],
   stalls: ["admin-stalls"],
-  assignments: ["admin-assignments"],
-  leases: ["admin-leases"],
   billings: ["admin-billings"],
   payments: ["admin-payments"],
   violations: ["admin-violations"],
@@ -120,10 +113,9 @@ const queryKeys = {
   staff: ["admin-staff"],
   settings: ["admin-settings"],
   sectionOptions: ["admin-section-options"],
-  userOptions: ["admin-user-options"],
-  vendorOptions: ["admin-vendor-options"],
   stallOptions: ["admin-stall-options"],
-  leaseOptions: ["admin-lease-options"],
+  userOptions: ["admin-user-options"],
+  vendorOptions: ["admin-vendor-options"]
 } as const;
 
 const defaultReportFilters: ReportFiltersInput = {
@@ -264,8 +256,6 @@ export function AdminVendorsPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.vendors }),
         queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
         queryClient.invalidateQueries({ queryKey: queryKeys.stalls }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.assignments }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.leases }),
         queryClient.invalidateQueries({ queryKey: queryKeys.billings }),
         queryClient.invalidateQueries({ queryKey: queryKeys.payments }),
         queryClient.invalidateQueries({ queryKey: queryKeys.violations }),
@@ -803,7 +793,14 @@ export function AdminStallsPage() {
               </Select>
             </Field>
             <Field label="Stall number"><Input onChange={(e) => setForm((c) => ({ ...c, stallNumber: e.target.value }))} value={form.stallNumber} /></Field>
-            <Field label="Stall type"><Input onChange={(e) => setForm((c) => ({ ...c, stallType: e.target.value }))} value={form.stallType} /></Field>
+            <Field label="Stall type">
+              <Select onChange={(e) => setForm((c) => ({ ...c, stallType: e.target.value }))} value={form.stallType}>
+                <option>General Merchandise</option>
+                <option>Fish</option>
+                <option>Meat</option>
+                <option>Produce</option>
+              </Select>
+            </Field>
             <Field label="Monthly rate"><Input onChange={(e) => setForm((c) => ({ ...c, monthlyRate: e.target.value }))} type="number" value={form.monthlyRate} /></Field>
             <Field label="Status">
               <Select onChange={(e) => setForm((c) => ({ ...c, status: e.target.value }))} value={form.status}>
@@ -832,183 +829,22 @@ export function AdminStallsPage() {
   );
 }
 
-// ─── Assignments ──────────────────────────────────────────────────────────────
-
-export function AdminAssignmentsPage() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const { data: assignments = [], isPending, error } = useQuery({ queryKey: queryKeys.assignments, queryFn: fetchAssignments, enabled: isSupabaseConfigured });
-  const { data: applications } = useQuery({ queryKey: queryKeys.applications, queryFn: fetchApplications, enabled: isSupabaseConfigured });
-  const { data: stallOptions = [] } = useQuery({ queryKey: queryKeys.stallOptions, queryFn: () => fetchStallOptions(["available", "reserved"]), enabled: isSupabaseConfigured });
-  const approvedApplications = (applications?.rows ?? []).filter((item) => item.status === "Approved");
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ applicationId: "", stallId: "", startDate: todayIso(), endDate: "", monthlyRate: "1250" });
-
-  const assign = useMutation({
-    mutationFn: async () => createAssignment(user!.id, { applicationId: form.applicationId, stallId: form.stallId, startDate: form.startDate, endDate: form.endDate, monthlyRate: Number(form.monthlyRate) }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.assignments }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.applications }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.stalls }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.leases }),
-      ]);
-      toast.success("Assignment created.");
-      setShowModal(false);
-      setForm({ applicationId: "", stallId: "", startDate: todayIso(), endDate: "", monthlyRate: "1250" });
-    },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        action={<Button onClick={() => setShowModal(true)} variant="secondary"><MapPinned className="mr-2 h-4 w-4" />Create assignment</Button>}
-        description="Link approved applicants to stalls and create active lease assignments."
-        eyebrow="Admin module"
-        title="Stall assignments"
-      />
-      {isPending ? <LoadingCard message="Loading assignments..." /> : null}
-      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
-      <Tbl head={["Vendor", "Stall", "Start date", "End date", "Status"]}>
-        {assignments.map((item) => (
-          <Tr key={item.leaseId}>
-            <Td><span className="font-medium text-foreground">{item.vendor}</span></Td>
-            <Td>{item.stall}</Td>
-            <Td className="text-muted-foreground">{item.startDate}</Td>
-            <Td className="text-muted-foreground">{item.endDate}</Td>
-            <Td><StatusBadge status={item.status} /></Td>
-          </Tr>
-        ))}
-      </Tbl>
-
-      {showModal ? (
-        <Modal onClose={() => setShowModal(false)} title="Create assignment">
-          <Field label="Approved application">
-            <Select onChange={(e) => setForm((c) => ({ ...c, applicationId: e.target.value }))} value={form.applicationId}>
-              <option value="">Select application</option>
-              {approvedApplications.map((item) => <option key={item.id} value={item.id}>{item.vendorName} — {item.businessType}</option>)}
-            </Select>
-          </Field>
-          <Field label="Available stall">
-            <Select onChange={(e) => setForm((c) => ({ ...c, stallId: e.target.value }))} value={form.stallId}>
-              <option value="">Select stall</option>
-              {stallOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </Select>
-          </Field>
-          <FormGrid>
-            <Field label="Start date"><Input onChange={(e) => setForm((c) => ({ ...c, startDate: e.target.value }))} type="date" value={form.startDate} /></Field>
-            <Field label="End date"><Input onChange={(e) => setForm((c) => ({ ...c, endDate: e.target.value }))} type="date" value={form.endDate} /></Field>
-            <Field label="Monthly rate"><Input onChange={(e) => setForm((c) => ({ ...c, monthlyRate: e.target.value }))} type="number" value={form.monthlyRate} /></Field>
-          </FormGrid>
-          <ModalFooter>
-            <Button disabled={!form.applicationId || !form.stallId || assign.isPending} onClick={() => assign.mutate()}>
-              <MapPinned className="mr-2 h-4 w-4" />Create assignment
-            </Button>
-            <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
-          </ModalFooter>
-        </Modal>
-      ) : null}
-    </div>
-  );
-}
-
-// ─── Leases ───────────────────────────────────────────────────────────────────
-
-export function AdminLeasesPage() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const { data, isPending, error } = useQuery({ queryKey: queryKeys.leases, queryFn: fetchLeases, enabled: isSupabaseConfigured });
-  const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState({ endDate: "", monthlyRate: "0", status: "Active", renewalStatus: "Not Due" });
-
-  const selected = data?.rows.find((r) => r.id === editId);
-
-  const openEdit = (id: string) => {
-    const lease = data?.rows.find((r) => r.id === id);
-    if (!lease) return;
-    setEditId(id);
-    setForm({ endDate: lease.leaseEndIso, monthlyRate: String(lease.monthlyRate), status: lease.status, renewalStatus: lease.renewalStatus });
-  };
-
-  const save = useMutation({
-    mutationFn: async () => updateLease(user!.id, { leaseId: editId!, endDate: form.endDate, monthlyRate: Number(form.monthlyRate), status: form.status, renewalStatus: form.renewalStatus }),
-    onSuccess: async () => {
-      await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.leases }), queryClient.invalidateQueries({ queryKey: queryKeys.assignments }), queryClient.invalidateQueries({ queryKey: queryKeys.stalls })]);
-      toast.success("Lease updated.");
-      setEditId(null);
-    },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  return (
-    <div className="space-y-6">
-      <PageHeader description="Monitor active contracts, renewal states, and lease lifecycle changes." eyebrow="Admin module" title="Lease and renewal tracker" />
-      {isPending ? <LoadingCard message="Loading leases..." /> : null}
-      {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
-      {data ? (
-        <>
-          <SummaryGrid summary={data.summary} />
-          <Tbl head={["Vendor", "Stall", "Lease end", "Monthly rate", "Status", "Renewal", "Actions"]}>
-            {data.rows.map((item) => (
-              <Tr key={item.id}>
-                <Td><span className="font-medium text-foreground">{item.vendor}</span></Td>
-                <Td>{item.stall}</Td>
-                <Td className="text-muted-foreground">{item.leaseEnd}</Td>
-                <Td>{formatCurrency(item.monthlyRate)}</Td>
-                <Td><StatusBadge status={item.status} /></Td>
-                <Td><StatusBadge status={item.renewalStatus} /></Td>
-                <Td>
-                  <Button onClick={() => openEdit(item.id)} size="sm" variant="outline"><PencilLine className="mr-2 h-3 w-3" />Edit</Button>
-                </Td>
-              </Tr>
-            ))}
-          </Tbl>
-        </>
-      ) : null}
-
-      {editId && selected ? (
-        <Modal onClose={() => setEditId(null)} title={`Edit lease — ${selected.vendor}`}>
-          <FormGrid>
-            <Field label="End date"><Input onChange={(e) => setForm((c) => ({ ...c, endDate: e.target.value }))} type="date" value={form.endDate} /></Field>
-            <Field label="Monthly rate"><Input onChange={(e) => setForm((c) => ({ ...c, monthlyRate: e.target.value }))} type="number" value={form.monthlyRate} /></Field>
-            <Field label="Status">
-              <Select onChange={(e) => setForm((c) => ({ ...c, status: e.target.value }))} value={form.status}>
-                <option>Draft</option><option>Active</option><option>Expired</option><option>Terminated</option>
-              </Select>
-            </Field>
-            <Field label="Renewal status">
-              <Select onChange={(e) => setForm((c) => ({ ...c, renewalStatus: e.target.value }))} value={form.renewalStatus}>
-                <option>Not Due</option><option>Due Soon</option><option>In Progress</option><option>Renewed</option><option>Expired</option>
-              </Select>
-            </Field>
-          </FormGrid>
-          <ModalFooter>
-            <Button disabled={save.isPending} onClick={() => save.mutate()}><ClipboardCheck className="mr-2 h-4 w-4" />Save lease</Button>
-            <Button onClick={() => setEditId(null)} variant="ghost">Cancel</Button>
-          </ModalFooter>
-        </Modal>
-      ) : null}
-    </div>
-  );
-}
-
 // ─── Billing ──────────────────────────────────────────────────────────────────
 
 export function AdminBillingPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { data, isPending, error } = useQuery({ queryKey: queryKeys.billings, queryFn: fetchBillings, enabled: isSupabaseConfigured });
-  const { data: leaseOptions = [] } = useQuery({ queryKey: queryKeys.leaseOptions, queryFn: fetchLeaseOptions, enabled: isSupabaseConfigured });
   const [editId, setEditId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ leaseId: "", billingMonth: todayIso(), amountDue: "0", dueDate: todayIso(), penalties: "0", notes: "" });
+  const { data: vendors = [] } = useQuery({ queryKey: queryKeys.vendorOptions, queryFn: fetchVendorOptions, enabled: isSupabaseConfigured });
+  const [form, setForm] = useState({ vendorId: "", billingMonth: todayIso(), amountDue: "0", dueDate: todayIso(), penalties: "0", notes: "" });
 
   const selected = data?.rows.find((r) => r.id === editId);
 
   const openCreate = () => {
     setEditId(null);
-    setForm({ leaseId: "", billingMonth: todayIso(), amountDue: "0", dueDate: todayIso(), penalties: "0", notes: "" });
+    setForm({ vendorId: "", billingMonth: todayIso(), amountDue: "0", dueDate: todayIso(), penalties: "0", notes: "" });
     setShowModal(true);
   };
 
@@ -1016,7 +852,7 @@ export function AdminBillingPage() {
     const b = data?.rows.find((r) => r.id === id);
     if (!b) return;
     setEditId(id);
-    setForm({ leaseId: b.leaseId, billingMonth: b.billingMonthIso, amountDue: String(b.amountDue), dueDate: b.dueDateIso, penalties: String(b.penalties), notes: b.notes });
+    setForm({ vendorId: b.vendorId, billingMonth: b.billingMonthIso, amountDue: String(b.amountDue), dueDate: b.dueDateIso, penalties: String(b.penalties), notes: b.notes });
     setShowModal(true);
   };
 
@@ -1024,7 +860,7 @@ export function AdminBillingPage() {
     mutationFn: async () =>
       editId
         ? updateBilling(user!.id, { billingId: editId, billingMonth: form.billingMonth, amountDue: Number(form.amountDue), dueDate: form.dueDate, penalties: Number(form.penalties), notes: form.notes })
-        : createBilling(user!.id, { leaseId: form.leaseId, billingMonth: form.billingMonth, amountDue: Number(form.amountDue), dueDate: form.dueDate, penalties: Number(form.penalties), notes: form.notes }),
+        : createBilling(user!.id, { vendorId: form.vendorId, billingMonth: form.billingMonth, amountDue: Number(form.amountDue), dueDate: form.dueDate, penalties: Number(form.penalties), notes: form.notes }),
     onSuccess: async () => {
       await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.billings }), queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })]);
       toast.success(editId ? "Billing updated." : "Billing created.");
@@ -1067,12 +903,14 @@ export function AdminBillingPage() {
 
       {showModal ? (
         <Modal onClose={() => setShowModal(false)} title={editId ? "Edit billing" : "Create billing"}>
-          <Field label="Lease">
-            <Select disabled={Boolean(editId)} onChange={(e) => setForm((c) => ({ ...c, leaseId: e.target.value }))} value={form.leaseId}>
-              <option value="">Select lease</option>
-              {leaseOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </Select>
-          </Field>
+          {!editId && (
+            <Field label="Vendor">
+              <Select onChange={(e) => setForm((c) => ({ ...c, vendorId: e.target.value }))} value={form.vendorId}>
+                <option value="">Select vendor</option>
+                {(vendors as AdminOption[]).map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+              </Select>
+            </Field>
+          )}
           <FormGrid>
             <Field label="Billing month"><Input onChange={(e) => setForm((c) => ({ ...c, billingMonth: e.target.value }))} type="date" value={form.billingMonth} /></Field>
             <Field label="Due date"><Input onChange={(e) => setForm((c) => ({ ...c, dueDate: e.target.value }))} type="date" value={form.dueDate} /></Field>
@@ -1081,7 +919,7 @@ export function AdminBillingPage() {
           </FormGrid>
           <Field label="Notes"><Textarea onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} rows={3} value={form.notes} /></Field>
           <ModalFooter>
-            <Button disabled={save.isPending} onClick={() => save.mutate()}><WalletCards className="mr-2 h-4 w-4" />{editId ? "Save billing" : "Create billing"}</Button>
+            <Button disabled={save.isPending || (!editId && !form.vendorId)} onClick={() => save.mutate()}><WalletCards className="mr-2 h-4 w-4" />{editId ? "Save billing" : "Create billing"}</Button>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
           </ModalFooter>
         </Modal>
@@ -1095,10 +933,26 @@ export function AdminBillingPage() {
 export function AdminPaymentsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { data, isPending, error } = useQuery({ queryKey: queryKeys.payments, queryFn: fetchPayments, enabled: isSupabaseConfigured });
-  const { data: billingRows } = useQuery({ queryKey: queryKeys.billings, queryFn: fetchBillings, enabled: isSupabaseConfigured });
+  const { data: billingData, isPending, error } = useQuery({ queryKey: queryKeys.billings, queryFn: fetchBillings, enabled: isSupabaseConfigured });
+  const { data: paymentData } = useQuery({ queryKey: queryKeys.payments, queryFn: fetchPayments, enabled: isSupabaseConfigured });
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ billingId: "", amount: "0", paymentDate: todayIso(), method: "Cash", receiptNumber: "", notes: "" });
+
+  const billingRows = billingData?.rows ?? [];
+  const paymentRows = paymentData?.rows ?? [];
+
+  const lastPaymentByBillingId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of paymentRows) {
+      if (!map.has(p.billingId)) map.set(p.billingId, p.paymentDate);
+    }
+    return map;
+  }, [paymentRows]);
+
+  const openRecordModal = (billingId = "", remaining = 0) => {
+    setForm({ billingId, amount: remaining > 0 ? String(remaining) : "0", paymentDate: todayIso(), method: "Cash", receiptNumber: "", notes: "" });
+    setShowModal(true);
+  };
 
   const save = useMutation({
     mutationFn: async () => createPayment(user!.id, { billingId: form.billingId, amount: Number(form.amount), paymentDate: form.paymentDate, method: form.method, receiptNumber: form.receiptNumber, notes: form.notes }),
@@ -1106,40 +960,89 @@ export function AdminPaymentsPage() {
       await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.payments }), queryClient.invalidateQueries({ queryKey: queryKeys.billings })]);
       toast.success("Payment recorded.");
       setShowModal(false);
-      setForm({ billingId: "", amount: "0", paymentDate: todayIso(), method: "Cash", receiptNumber: "", notes: "" });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
+  const unpaidCount = billingRows.filter((r) => r.status === "Unpaid" || r.status === "Overdue").length;
+  const partialCount = billingRows.filter((r) => r.status === "Partial").length;
+  const totalOutstanding = billingRows.reduce((sum, r) => sum + Math.max(r.amountDue - r.amountPaid, 0), 0);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>PAYMENT MONITORING</h2>
-      {isPending ? <LoadingCard message="Loading payments..." /> : null}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>PAYMENT MONITORING</h2>
+        <Button onClick={() => openRecordModal()}><WalletCards className="mr-2 h-4 w-4" />Record Payment</Button>
+      </div>
+
+      {billingRows.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+          <PaymentSummaryCard label="Total Outstanding" value={formatCurrency(totalOutstanding)} color="#dc2626" />
+          <PaymentSummaryCard label="Unpaid / Overdue" value={String(unpaidCount)} color="#b45309" />
+          <PaymentSummaryCard label="Partial Payments" value={String(partialCount)} color="#1d4ed8" />
+        </div>
+      )}
+
+      {isPending ? <LoadingCard message="Loading payment records..." /> : null}
       {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
-      {data ? (
-        <MockupTable head={["STALL #", "VENDOR", "AMOUNT", "LAST PAYMENT", "NEXT DUE", "STATUS", "ACTIONS"]}>
-          {data.rows.map((item) => (
-            <MockupTr key={item.id}>
-              <MockupTd><span style={{ fontWeight: 600 }}>{item.vendor.split(" ")[0] || "—"}</span></MockupTd>
-              <MockupTd>{item.vendor}</MockupTd>
-              <MockupTd style={{ fontWeight: 600 }}>{formatCurrency(item.amount)}</MockupTd>
-              <MockupTd style={{ color: "#6b7280" }}>{item.paymentDate}</MockupTd>
-              <MockupTd style={{ color: "#6b7280" }}>{item.paymentDate}</MockupTd>
-              <MockupTd><PaymentStatusBadge status={item.method === "Cash" || item.method === "GCash" || item.method === "Bank Transfer" ? "Paid" : item.method} /></MockupTd>
-              <MockupTd>
-                <button onClick={() => setShowModal(true)} style={{ background: "none", border: "none", color: "#16a34a", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }} type="button">Mark Paid</button>
-              </MockupTd>
-            </MockupTr>
-          ))}
+
+      {!isPending && !error && billingRows.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "#9ca3af" }}>
+          <p style={{ fontSize: "16px", fontWeight: 600 }}>No billing records found</p>
+          <p style={{ fontSize: "13px", marginTop: 4 }}>Create billing records first to monitor payments.</p>
+        </div>
+      )}
+
+      {billingRows.length > 0 && (
+        <MockupTable head={["STALL #", "VENDOR", "AMOUNT DUE", "LAST PAYMENT", "DUE DATE", "STATUS", "ACTIONS"]}>
+          {billingRows.map((item) => {
+            const remaining = Math.max(item.amountDue - item.amountPaid, 0);
+            const lastPaid = lastPaymentByBillingId.get(item.id) ?? "—";
+            const isPaidOff = item.status === "Paid";
+            return (
+              <MockupTr key={item.id}>
+                <MockupTd><span style={{ fontWeight: 600 }}>{item.stall}</span></MockupTd>
+                <MockupTd>{item.vendor}</MockupTd>
+                <MockupTd style={{ fontWeight: 600 }}>
+                  {formatCurrency(item.amountDue)}
+                  {item.amountPaid > 0 && !isPaidOff && (
+                    <span style={{ fontSize: "11px", color: "#6b7280", marginLeft: 6 }}>(₱{remaining.toLocaleString()} left)</span>
+                  )}
+                </MockupTd>
+                <MockupTd style={{ color: "#6b7280" }}>{lastPaid}</MockupTd>
+                <MockupTd style={{ color: item.status === "Overdue" ? "#dc2626" : "#6b7280" }}>{item.dueDate}</MockupTd>
+                <MockupTd><PaymentStatusBadge status={item.status} /></MockupTd>
+                <MockupTd>
+                  {!isPaidOff ? (
+                    <button
+                      onClick={() => openRecordModal(item.id, remaining)}
+                      style={{ background: "none", border: "none", color: "#16a34a", fontWeight: 600, cursor: "pointer", fontSize: "14px", padding: 0 }}
+                      type="button"
+                    >
+                      Mark Paid
+                    </button>
+                  ) : (
+                    <span style={{ color: "#9ca3af", fontSize: "13px" }}>Paid</span>
+                  )}
+                </MockupTd>
+              </MockupTr>
+            );
+          })}
         </MockupTable>
-      ) : null}
+      )}
 
       {showModal ? (
-        <Modal onClose={() => setShowModal(false)} title="Record payment">
+        <Modal onClose={() => setShowModal(false)} title="Record Payment">
           <Field label="Billing record">
-            <Select onChange={(e) => setForm((c) => ({ ...c, billingId: e.target.value }))} value={form.billingId}>
+            <Select onChange={(e) => {
+              const selected = billingRows.find((r) => r.id === e.target.value);
+              const rem = selected ? Math.max(selected.amountDue - selected.amountPaid, 0) : 0;
+              setForm((c) => ({ ...c, billingId: e.target.value, amount: rem > 0 ? String(rem) : c.amount }));
+            }} value={form.billingId}>
               <option value="">Select billing</option>
-              {(billingRows?.rows ?? []).map((item) => <option key={item.id} value={item.id}>{item.vendor} — {item.billingMonth}</option>)}
+              {billingRows.filter((r) => r.status !== "Paid").map((item) => (
+                <option key={item.id} value={item.id}>{item.vendor} — {item.stall} — {item.billingMonth}</option>
+              ))}
             </Select>
           </Field>
           <FormGrid>
@@ -1154,7 +1057,9 @@ export function AdminPaymentsPage() {
           </FormGrid>
           <Field label="Notes"><Textarea onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} rows={3} value={form.notes} /></Field>
           <ModalFooter>
-            <Button disabled={!form.billingId || save.isPending} onClick={() => save.mutate()}><WalletCards className="mr-2 h-4 w-4" />Record payment</Button>
+            <Button disabled={!form.billingId || !form.amount || Number(form.amount) <= 0 || save.isPending} onClick={() => save.mutate()}>
+              <WalletCards className="mr-2 h-4 w-4" />Record Payment
+            </Button>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
           </ModalFooter>
         </Modal>
@@ -1924,6 +1829,15 @@ function MockupTd({ children, style }: { children: ReactNode; style?: React.CSSP
     <td style={{ padding: "14px 16px", color: "#374151", verticalAlign: "middle", ...style }}>
       {children}
     </td>
+  );
+}
+
+function PaymentSummaryCard({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "16px 20px" }}>
+      <p style={{ fontSize: "12px", color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 6px" }}>{label}</p>
+      <p style={{ fontSize: "22px", fontWeight: 700, color, margin: 0 }}>{value}</p>
+    </div>
   );
 }
 

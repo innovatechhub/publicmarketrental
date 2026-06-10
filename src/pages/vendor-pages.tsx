@@ -23,7 +23,6 @@ import {
   Send,
   Trash2,
   Upload,
-  Wrench,
   X,
 } from "lucide-react";
 
@@ -113,7 +112,7 @@ type SupportRequestValues = z.infer<typeof supportRequestSchema>;
 export function VendorDashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isReady, applications, billings, documents, notifications, stall } = useVendorWorkspace();
+  const { isReady, applications, billings, documents, notifications } = useVendorWorkspace();
 
   const orderedBillings = useMemo(
     () => [...billings].sort((left, right) => new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime()),
@@ -148,24 +147,8 @@ export function VendorDashboardPage() {
             <FilePlus2 className="mr-2 h-4 w-4" />
             Applications
           </Button>
-          <Button onClick={() => navigate("/vendor/stall")} variant="outline">
-            <Wrench className="mr-2 h-4 w-4" />
-            Stall Support
-          </Button>
         </div>
       </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="border-l-4 border-l-[#00966f]">
-          <CardHeader>
-            <CardTitle className="text-sm uppercase tracking-wide text-slate-500">Stall Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <PlainInfo label="Stall Number" value={stall.stall} valueClassName="text-2xl text-[#00966f]" />
-            <PlainInfo label="Stall Type" value={stall.type} />
-            <PlainInfo label="Monthly Rent" value={stall.rate} />
-          </CardContent>
-        </Card>
 
         <Card className="border-l-4 border-l-[#294cc2]">
           <CardHeader>
@@ -185,17 +168,6 @@ export function VendorDashboardPage() {
             <PlainInfo label="Next Due Date" value={nextDueBilling?.dueDate ?? "-"} />
           </CardContent>
         </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg uppercase tracking-wide text-[#00966f]">Lease Information</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-6 md:grid-cols-2">
-          <PlainInfo label="Lease Start Date" value={stall.leaseStart} />
-          <PlainInfo label="Lease End Date" value={stall.leaseEnd} />
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -228,7 +200,7 @@ export function VendorDashboardPage() {
 
 export function VendorProfilePage() {
   const { changeEmail, changePassword, user } = useAuth();
-  const { applications, documents, saveProfile, stall } = useVendorWorkspace();
+  const { applications, documents, saveProfile } = useVendorWorkspace();
 
   const form = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
@@ -363,7 +335,6 @@ export function VendorProfilePage() {
           </CardHeader>
           <CardContent className="grid gap-4">
             <InfoItem label="Business" value={user?.businessName ?? "-"} />
-            <InfoItem label="Assigned stall" value={stall.stall} />
             <InfoItem label="Applications on file" value={`${applications.length}`} />
             <InfoItem
               label="Verified documents"
@@ -776,130 +747,6 @@ export function VendorApplicationsPage() {
           ) : null}
         </div>
       </ApplicationModal>
-    </div>
-  );
-}
-
-export function VendorStallPage() {
-  const { stall, requestLeaseRenewal, submitSupportRequest } = useVendorWorkspace();
-
-  const form = useForm<SupportRequestValues>({
-    resolver: zodResolver(supportRequestSchema),
-    defaultValues: {
-      subject: "",
-      detail: "",
-    },
-  });
-
-  const onSubmit = form.handleSubmit(async (values) => {
-    await submitSupportRequest(values);
-    form.reset({ subject: "", detail: "" });
-    toast.success("Support request sent to operations.");
-  });
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        action={
-          <div className="flex flex-wrap gap-3">
-            <Button
-              disabled={stall.renewalStatus === "Pending Renewal Review"}
-              onClick={async () => {
-                await requestLeaseRenewal();
-                toast.success("Lease renewal request submitted.");
-              }}
-              variant="secondary"
-            >
-              <RefreshCcw className="mr-2 h-4 w-4" />
-              Request renewal
-            </Button>
-            <Button onClick={() => window.print()} variant="outline">
-              <Printer className="mr-2 h-4 w-4" />
-              Print lease summary
-            </Button>
-          </div>
-        }
-        description="Review your assigned stall, request renewal, and file operational support concerns."
-        eyebrow="Assigned stall"
-        title={stall.stall}
-      />
-
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Lease details</CardTitle>
-            <CardDescription>Current assignment data and renewal posture.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <InfoItem label="Section" value={stall.section} />
-            <InfoItem label="Type" value={stall.type} />
-            <InfoItem label="Monthly rate" value={stall.rate} />
-            <InfoItem label="Lease start" value={stall.leaseStart} />
-            <InfoItem label="Lease end" value={stall.leaseEnd} />
-            <InfoItem
-              label="Renewal status"
-              value={
-                stall.renewalRequestedAt
-                  ? `${stall.renewalStatus} on ${stall.renewalRequestedAt}`
-                  : stall.renewalStatus
-              }
-            />
-            <div className="md:col-span-2">
-              <InfoItem label="Notes" value={stall.notes} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Request support</CardTitle>
-            <CardDescription>Use this form for repairs, access issues, or stall-side concerns.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={onSubmit}>
-              <FieldGroup label="Request subject">
-                <Input placeholder="Example: Drainage concern" {...form.register("subject")} />
-                <FieldError message={form.formState.errors.subject?.message} />
-              </FieldGroup>
-
-              <FieldGroup label="Details">
-                <Textarea rows={4} {...form.register("detail")} />
-                <FieldError message={form.formState.errors.detail?.message} />
-              </FieldGroup>
-
-              <Button disabled={form.formState.isSubmitting} type="submit">
-                <Wrench className="mr-2 h-4 w-4" />
-                Submit support request
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Support request history</CardTitle>
-          <CardDescription>Recent issues you have already raised for this stall.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {stall.supportRequests.length === 0 ? (
-            <EmptyState message="No stall support requests yet." />
-          ) : (
-            stall.supportRequests.map((item) => (
-              <div className="rounded-2xl border border-border/70 bg-background/70 p-4" key={item.id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-foreground">{item.subject}</p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.detail}</p>
-                  </div>
-                  <StatusBadge status={item.status} />
-                </div>
-                <p className="mt-3 text-xs uppercase tracking-[0.18em] text-primary">{item.requestedAt}</p>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }
