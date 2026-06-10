@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { ChevronDown, LogOut, Menu, UserCircle2, X } from "lucide-react";
 import { MarketLogo } from "@/components/shared/market-brand";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/auth-context";
@@ -14,16 +14,46 @@ interface PortalLayoutProps {
 
 export function PortalLayout({ navigation, portalName }: PortalLayoutProps) {
   const [open, setOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const visibleNavigation = navigation.filter(
     (item) => !item.roles || (user ? item.roles.includes(user.role) : true),
   );
 
+  useEffect(() => {
+    if (!accountMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [accountMenuOpen]);
+
   return (
     <div className="min-h-screen bg-[#f3f6fb] text-slate-900">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-[1304px] items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[1304px] items-center gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
             <Button
               aria-label="Open navigation"
@@ -44,7 +74,7 @@ export function PortalLayout({ navigation, portalName }: PortalLayoutProps) {
             </div>
           </div>
 
-          <nav className="hidden items-center gap-1 lg:flex">
+          <nav className="hidden flex-1 items-center justify-center gap-1 lg:flex">
             {visibleNavigation.map((item) => (
               <NavLink
                 className={({ isActive }) =>
@@ -61,21 +91,62 @@ export function PortalLayout({ navigation, portalName }: PortalLayoutProps) {
             ))}
           </nav>
 
-          <div className="hidden shrink-0 items-center gap-4 sm:flex">
-            <div className="text-right">
-              <p className="text-sm font-bold text-slate-900">{user?.name ?? "Vendor"}</p>
-              <p className="text-xs text-slate-500">Vendor Account</p>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="relative" ref={accountMenuRef}>
+              <Button
+                aria-expanded={accountMenuOpen}
+                aria-haspopup="menu"
+                className="group flex h-auto items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-sm hover:bg-slate-50"
+                onClick={() => setAccountMenuOpen((current) => !current)}
+                type="button"
+                variant="outline"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-[#00966f]">
+                  <UserCircle2 className="h-5 w-5" />
+                </div>
+                <div className="hidden min-w-0 text-left sm:block">
+                  <p className="truncate text-sm font-bold text-slate-900">{user?.name ?? "Vendor"}</p>
+                  <p className="truncate text-xs text-slate-500">Vendor Account</p>
+                </div>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 text-slate-500 transition-transform duration-150",
+                    accountMenuOpen && "rotate-180",
+                  )}
+                />
+              </Button>
+
+              {accountMenuOpen ? (
+                <div
+                  className="absolute right-0 top-full z-40 mt-3 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
+                  role="menu"
+                >
+                  <button
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-emerald-50 hover:text-[#00966f]"
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      navigate("/vendor/profile");
+                    }}
+                    type="button"
+                  >
+                    <UserCircle2 className="h-4 w-4" />
+                    Profile
+                  </button>
+                  <button
+                    className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                    onClick={async () => {
+                      setAccountMenuOpen(false);
+                      await signOut();
+                      navigate("/login");
+                    }}
+                    type="button"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
+              ) : null}
             </div>
-            <Button
-              className="bg-red-500 px-4 hover:bg-red-600"
-              onClick={async () => {
-                await signOut();
-                navigate("/login");
-              }}
-              type="button"
-            >
-              Logout
-            </Button>
           </div>
         </div>
       </header>
@@ -122,16 +193,6 @@ export function PortalLayout({ navigation, portalName }: PortalLayoutProps) {
             </NavLink>
           ))}
         </nav>
-        <Button
-          className="mt-6 w-full bg-red-500 hover:bg-red-600"
-          onClick={async () => {
-            await signOut();
-            navigate("/login");
-          }}
-          type="button"
-        >
-          Logout
-        </Button>
       </aside>
 
       <main className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 lg:px-8">

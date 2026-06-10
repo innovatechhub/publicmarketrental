@@ -7,7 +7,6 @@ import {
   Settings,
   ShieldAlert,
   Store,
-  UserCircle2,
   UserCog,
   Users,
   WalletCards,
@@ -30,7 +29,6 @@ export const adminNavigation: NavItem[] = [
 
 export const vendorNavigation: NavItem[] = [
   { label: "Dashboard", to: "/vendor/dashboard", icon: LayoutDashboard },
-  { label: "Profile", to: "/vendor/profile", icon: UserCircle2 },
   { label: "Applications", to: "/vendor/applications", icon: FileText },
   { label: "Assigned Stall", to: "/vendor/stall", icon: Store },
   { label: "Billing", to: "/vendor/billing", icon: WalletCards },

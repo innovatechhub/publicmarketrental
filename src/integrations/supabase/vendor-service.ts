@@ -293,7 +293,7 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
       .order("created_at", { ascending: false }),
     db
       .from("leases")
-      .select("id, vendor_id, stall_id, start_date, end_date, monthly_rate, status, renewal_status, notes, created_at")
+      .select("id, vendor_id, stall_id, start_date, end_date, monthly_rate, status, renewal_status, created_at")
       .eq("vendor_id", vendor.id)
       .order("created_at", { ascending: false }),
   ]);
@@ -511,7 +511,7 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
       rate: currentStall ? formatCurrency(Number(currentStall.monthly_rate ?? 0)) : "-",
       leaseStart: currentLease ? formatDisplayDate(currentLease.start_date) : "-",
       leaseEnd: currentLease ? formatDisplayDate(currentLease.end_date) : "-",
-      notes: currentLease?.notes ?? currentStall?.notes ?? "No active lease notes available.",
+      notes: "No active lease notes available.",
       renewalStatus: renewalStatus as "Not Requested" | "Pending Renewal Review",
       renewalRequestedAt: currentLease?.created_at ? formatDisplayDate(currentLease.created_at) : undefined,
       supportRequests: mappedSupportRequests,

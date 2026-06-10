@@ -942,5 +942,6 @@ values
   ('barangay_clearance', 'Barangay Clearance', 'Barangay-level business clearance requirement', true, true, 1),
   ('police_clearance', 'Police Clearance', 'Police clearance for vendor compliance screening', true, true, 2),
   ('health_clearance', 'Health Clearance', 'Health clearance for market operations', true, true, 3),
-  ('dti_registration', 'DTI Registration', 'Department of Trade and Industry registration', true, true, 4)
+  ('dti_registration', 'DTI Registration', 'Department of Trade and Industry registration', true, true, 4),
+  ('business_permit', 'Business Permit', 'Local government business permit', true, true, 5)
 on conflict (code) do nothing;
