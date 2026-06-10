@@ -253,32 +253,16 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-interface LeaseCoreRecord {
-  id: string;
-  vendor_id: string;
-  stall_id: string | null;
-  status: string;
-  start_date: string;
-  end_date: string;
-  monthly_rate: number;
-  renewal_status: string;
-  created_at?: string;
-}
-
 interface CoreMaps {
   profiles: Array<{ id: string; full_name: string; email: string; phone: string | null; role: string }>;
   vendors: Array<{ id: string; profile_id: string; business_name: string; business_type: string | null; status: string }>;
   sections: Array<{ id: string; name: string; code: string }>;
-  stalls: Array<{ id: string; section_id: string; stall_number: string; stall_type: string; monthly_rate: number; status: string; notes: string | null }>;
-  leases: LeaseCoreRecord[];
+  stalls: Array<{ id: string; section_id: string; stall_number: string; stall_type: string; monthly_rate: number; status: string; notes: string | null; vendor_id: string | null }>;
   profileById: Map<string, CoreMaps["profiles"][number]>;
   vendorById: Map<string, CoreMaps["vendors"][number]>;
   vendorByProfileId: Map<string, CoreMaps["vendors"][number]>;
   sectionById: Map<string, CoreMaps["sections"][number]>;
   stallById: Map<string, CoreMaps["stalls"][number] & { label: string }>;
-  leaseById: Map<string, LeaseCoreRecord>;
-  leaseByVendorId: Map<string, LeaseCoreRecord>;
-  activeLeaseByVendorId: Map<string, LeaseCoreRecord>;
 }
 
 async function logActivity(
@@ -315,25 +299,22 @@ async function notifyUser(userId: string, title: string, message: string, type: 
 
 async function loadCoreMaps(): Promise<CoreMaps> {
   const db = requireSupabase();
-  const [profilesResult, vendorsResult, sectionsResult, stallsResult, leasesResult] = await Promise.all([
+  const [profilesResult, vendorsResult, sectionsResult, stallsResult] = await Promise.all([
     db.from("profiles").select("id, full_name, email, phone, role"),
     db.from("vendors").select("id, profile_id, business_name, business_type, status"),
     db.from("market_sections").select("id, name, code").order("sort_order", { ascending: true }),
-    db.from("stalls").select("id, section_id, stall_number, stall_type, monthly_rate, status, notes"),
-    db.from("leases").select("id, vendor_id, stall_id, start_date, end_date, monthly_rate, status, renewal_status, created_at").order("created_at", { ascending: false }),
+    db.from("stalls").select("id, section_id, stall_number, stall_type, monthly_rate, status, notes, vendor_id"),
   ]);
 
   if (profilesResult.error) throw profilesResult.error;
   if (vendorsResult.error) throw vendorsResult.error;
   if (sectionsResult.error) throw sectionsResult.error;
   if (stallsResult.error) throw stallsResult.error;
-  if (leasesResult.error) throw leasesResult.error;
 
   const profiles = profilesResult.data ?? [];
   const vendors = vendorsResult.data ?? [];
   const sections = sectionsResult.data ?? [];
-  const stalls = stallsResult.data ?? [];
-  const leases = (leasesResult.data ?? []) as LeaseCoreRecord[];
+  const stalls = (stallsResult.data ?? []).map((s) => ({ ...s, vendor_id: s.vendor_id ?? null }));
 
   const profileById = new Map(profiles.map((item) => [item.id, item]));
   const vendorById = new Map(vendors.map((item) => [item.id, item]));
@@ -348,32 +329,17 @@ async function loadCoreMaps(): Promise<CoreMaps> {
       },
     ]),
   );
-  const leaseById = new Map(leases.map((item) => [item.id, item]));
-  const leaseByVendorId = new Map<string, LeaseCoreRecord>();
-  const activeLeaseByVendorId = new Map<string, LeaseCoreRecord>();
-  for (const lease of leases) {
-    if (!leaseByVendorId.has(lease.vendor_id)) {
-      leaseByVendorId.set(lease.vendor_id, lease);
-    }
-    if (lease.status === "active" && !activeLeaseByVendorId.has(lease.vendor_id)) {
-      activeLeaseByVendorId.set(lease.vendor_id, lease);
-    }
-  }
 
   return {
     profiles,
     vendors,
     sections,
     stalls,
-    leases,
     profileById,
     vendorById,
     vendorByProfileId,
     sectionById,
     stallById,
-    leaseById,
-    leaseByVendorId,
-    activeLeaseByVendorId,
   };
 }
 
@@ -934,8 +900,8 @@ export async function completeApplicationAssignment(
     throw new Error("Selected stall was not found.");
   }
 
-  const existingLease = core.leaseByVendorId.get(application.vendor_id) ?? null;
-  if (stall.status === "occupied" && existingLease?.stall_id !== stall.id) {
+  const stallVendorId = core.stallById.get(stall.id)?.vendor_id ?? null;
+  if (stall.status === "occupied" && stallVendorId !== application.vendor_id) {
     throw new Error("Selected stall is already occupied.");
   }
 
@@ -948,37 +914,11 @@ export async function completeApplicationAssignment(
   if (vendorError) throw vendorError;
 
   const nowIso = new Date().toISOString();
-  const startDate = nowIso.slice(0, 10);
-  const endDate = addMonthsIso(startDate, 12);
-  const leasePayload = {
-    vendor_id: application.vendor_id,
-    stall_id: stall.id,
-    start_date: startDate,
-    end_date: endDate,
-    monthly_rate: Number(stall.monthly_rate ?? 0),
-    status: "active",
-    renewal_status: "not_due",
-    created_by: actorId,
-  };
 
-  if (existingLease) {
-    const { error: leaseError } = await db
-      .from("leases")
-      .update(leasePayload)
-      .eq("id", existingLease.id);
-
-    if (leaseError) throw leaseError;
-  } else {
-    const { error: leaseError } = await db.from("leases").insert(leasePayload);
-    if (leaseError) throw leaseError;
-  }
-
-  if (existingLease?.stall_id && existingLease.stall_id !== stall.id) {
-    const { error: oldStallError } = await db.from("stalls").update({ status: "available" }).eq("id", existingLease.stall_id);
-    if (oldStallError) throw oldStallError;
-  }
-
-  const { error: stallErrorUpdate } = await db.from("stalls").update({ status: "occupied" }).eq("id", stall.id);
+  const { error: stallErrorUpdate } = await db
+    .from("stalls")
+    .update({ status: "occupied", vendor_id: application.vendor_id })
+    .eq("id", stall.id);
   if (stallErrorUpdate) throw stallErrorUpdate;
 
   const { error: applicationUpdateError } = await db
@@ -1003,7 +943,7 @@ export async function completeApplicationAssignment(
     "/vendor/applications",
   );
 
-  await logActivity(actorId, "assigned", "lease", existingLease?.id ?? input.applicationId, {
+  await logActivity(actorId, "assigned", "application", input.applicationId, {
     applicationId: input.applicationId,
     stallId: stall.id,
     monthlyRate: Number(stall.monthly_rate ?? 0),
@@ -1121,24 +1061,10 @@ export async function fetchStalls(): Promise<{
   summary: [string, string][];
   rows: AdminStallRecord[];
 }> {
-  const db = requireSupabase();
   const core = await loadCoreMaps();
 
-  // Build stall→vendor map via most-recent violation per stall
-  const { data: violationsData } = await db
-    .from("violations")
-    .select("stall_id, vendor_id")
-    .order("created_at", { ascending: false });
-
-  const vendorByStallId = new Map<string, string>();
-  for (const v of violationsData ?? []) {
-    if (v.stall_id && v.vendor_id && !vendorByStallId.has(v.stall_id)) {
-      vendorByStallId.set(v.stall_id, v.vendor_id);
-    }
-  }
-
   const rows = core.stalls.map((item) => {
-    const vendorId = item.status === "occupied" ? (vendorByStallId.get(item.id) ?? null) : null;
+    const vendorId = item.vendor_id ?? null;
     const vendor = vendorId ? core.vendorById.get(vendorId) : null;
     const profile = vendor ? core.profileById.get(vendor.profile_id) : null;
     return {
@@ -1152,7 +1078,7 @@ export async function fetchStalls(): Promise<{
       status: titleizeStatus(item.status),
       notes: item.notes ?? "",
       currentVendorId: vendorId,
-      currentVendorName: vendor?.business_name ?? profile?.full_name ?? null,
+      currentVendorName: profile?.full_name ?? vendor?.business_name ?? null,
       currentVendorEmail: profile?.email ?? null,
       currentVendorPhone: profile?.phone ?? null,
     };
@@ -1178,17 +1104,25 @@ export async function saveStall(
     monthlyRate: number;
     status: string;
     notes: string;
+    vendorId?: string | null;
   },
 ) {
   const db = requireSupabase();
-  const payload = {
+  const normalizedStatus = input.status.toLowerCase().replace(/\s+/g, "_");
+  const payload: Record<string, unknown> = {
     section_id: input.sectionId,
     stall_number: input.stallNumber,
     stall_type: input.stallType,
     monthly_rate: input.monthlyRate,
-    status: input.status.toLowerCase().replace(/\s+/g, "_"),
+    status: normalizedStatus,
     notes: input.notes,
   };
+  // Set vendor_id when provided; clear it when stall is no longer occupied
+  if (input.vendorId !== undefined) {
+    payload.vendor_id = input.vendorId ?? null;
+  } else if (normalizedStatus !== "occupied") {
+    payload.vendor_id = null;
+  }
 
   const result = input.stallId
     ? await db.from("stalls").update(payload).eq("id", input.stallId).select("id").single()

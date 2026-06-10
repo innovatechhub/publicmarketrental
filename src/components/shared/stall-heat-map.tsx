@@ -464,6 +464,7 @@ function StallModal({ stall, stallNum, onClose }: {
   const assign = useMutation({
     mutationFn: () => {
       if (!stall) return Promise.reject(new Error("Stall record not found in database."));
+      if (!selectedVendorId) return Promise.reject(new Error("Please select a vendor."));
       return saveStall(user!.id, {
         stallId: stall.id,
         sectionId: stall.sectionId,
@@ -472,6 +473,7 @@ function StallModal({ stall, stallNum, onClose }: {
         monthlyRate: stall.rate,
         status: "occupied",
         notes: stall.notes,
+        vendorId: selectedVendorId,
       });
     },
     onSuccess: async () => {

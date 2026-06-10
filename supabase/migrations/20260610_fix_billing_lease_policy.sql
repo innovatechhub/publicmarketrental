@@ -22,3 +22,9 @@ for select using (
   )
   or public.is_back_office()
 );
+
+-- Add vendor_id to stalls so occupied stalls know their current vendor directly
+alter table public.stalls
+  add column if not exists vendor_id uuid references public.vendors(id) on delete set null;
+
+create index if not exists idx_stalls_vendor_id on public.stalls(vendor_id);

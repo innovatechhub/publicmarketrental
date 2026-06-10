@@ -199,15 +199,61 @@ async function getVendor(profileId: string) {
   const db = requireSupabase();
   const { data, error } = await db
     .from("vendors")
-    .select("id, business_name")
+    .select("id, business_name, profile_id")
     .eq("profile_id", profileId)
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw error;
   }
 
-  return data;
+  if (data) {
+    return data;
+  }
+
+  const { data: profile, error: profileError } = await db
+    .from("profiles")
+    .select("full_name, role")
+    .eq("id", profileId)
+    .single();
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  if (profile.role !== "vendor") {
+    throw new Error("Vendor account not found for this profile.");
+  }
+
+  const { data: createdVendor, error: createError } = await db
+    .from("vendors")
+    .insert({
+      profile_id: profileId,
+      business_name: profile.full_name || "New Vendor",
+      status: "active",
+    })
+    .select("id, business_name, profile_id")
+    .single();
+
+  if (createError) {
+    if (createError.code === "23505") {
+      const { data: retryVendor, error: retryError } = await db
+        .from("vendors")
+        .select("id, business_name, profile_id")
+        .eq("profile_id", profileId)
+        .single();
+
+      if (retryError) {
+        throw retryError;
+      }
+
+      return retryVendor;
+    }
+
+    throw createError;
+  }
+
+  return createdVendor;
 }
 
 async function createNotification(profileId: string, title: string, detail: string, status: string, link: string) {
@@ -636,8 +682,7 @@ export async function saveVendorDocument(
       .upload(storagePath, input.file, { upsert: true, contentType: input.file.type });
 
     if (uploadError) {
-      // Degrade gracefully — save the record without the file rather than blocking the whole save
-      fileUploadWarning = uploadError.message;
+      throw new Error(`File upload failed: ${uploadError.message}`);
     } else {
       fileUrl = storagePath;
       fileName = input.file.name;
@@ -664,7 +709,11 @@ export async function saveVendorDocument(
           .single()
       ).data?.id
     : (
-        await db.from("application_documents").upsert(payload).select("id").single()
+        await db
+          .from("application_documents")
+          .upsert(payload, { onConflict: "application_id,requirement_id" })
+          .select("id")
+          .single()
       ).data?.id;
 
   if (!id) {
