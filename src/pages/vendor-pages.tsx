@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import {
@@ -22,7 +22,6 @@ import {
   RefreshCcw,
   Send,
   Trash2,
-  Upload,
   X,
 } from "lucide-react";
 
@@ -83,14 +82,15 @@ const passwordChangeSchema = z
     path: ["confirmPassword"],
   });
 
-const documentSchema = z.object({
-  document: z.string().min(2, "Document name is required."),
-  expiry: z.string().min(1, "Expiry date is required."),
-  remarks: z.string().min(4, "Add a short note for this upload."),
-});
-
 const ACCEPTED_DOC_TYPES = ".pdf,.jpg,.jpeg,.png,.webp";
 const MAX_FILE_SIZE_MB = 10;
+const REQUIRED_DOC_TYPES = [
+  "Barangay Clearance",
+  "Police Clearance",
+  "Health Clearance",
+  "DTI Registration",
+  "Business Permit",
+];
 
 const paymentSchema = z.object({
   amount: z
@@ -109,7 +109,6 @@ const supportRequestSchema = z.object({
 type ProfileValues = z.infer<typeof profileSchema>;
 type EmailChangeValues = z.infer<typeof emailChangeSchema>;
 type PasswordChangeValues = z.infer<typeof passwordChangeSchema>;
-type DocumentValues = z.infer<typeof documentSchema>;
 type PaymentValues = z.infer<typeof paymentSchema>;
 type SupportRequestValues = z.infer<typeof supportRequestSchema>;
 
@@ -357,82 +356,36 @@ export function VendorApplicationsPage() {
   const [isApplicationModalOpen, setIsApplicationModalOpen] = useState(false);
   const [applicationDraftValues, setApplicationDraftValues] = useState<ApplicationValues>(defaultApplicationValues);
 
-  // Document sub-form state (lives inside the application modal)
-  const [editingDocId, setEditingDocId] = useState<string | null>(null);
-  const [showDocForm, setShowDocForm] = useState(false);
-  const [docFile, setDocFile] = useState<File | null>(null);
-  const docFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
 
-  const editingDoc = documents.find((d) => d.id === editingDocId) ?? null;
-
-  const docForm = useForm<DocumentValues>({
-    resolver: zodResolver(documentSchema),
-    defaultValues: { document: "Barangay Clearance", expiry: "", remarks: "" },
-  });
-
-  useEffect(() => {
-    docForm.reset({
-      document: editingDoc?.document ?? "Barangay Clearance",
-      expiry: editingDoc ? formatDateInputValue(editingDoc.expiry) : "",
-      remarks: editingDoc?.remarks ?? "",
-    });
-    setDocFile(null);
-    if (docFileInputRef.current) docFileInputRef.current.value = "";
-  }, [editingDoc, docForm]);
-
-  const openDocForm = (id?: string) => {
-    setEditingDocId(id ?? null);
-    setShowDocForm(true);
-  };
-
-  const closeDocForm = () => {
-    setShowDocForm(false);
-    setEditingDocId(null);
-    setDocFile(null);
-    if (docFileInputRef.current) docFileInputRef.current.value = "";
-  };
-
-  const onDocSubmit = docForm.handleSubmit(async (values) => {
-    if (!editingDocId && !docFile) {
-      docForm.setError("document", { type: "manual", message: "Please attach a file for the new document." });
-      return;
-    }
-    if (docFile && docFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+  const handleDocFileChange = async (docType: string, file: File | null) => {
+    if (!file) return;
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
       toast.error(`File must be under ${MAX_FILE_SIZE_MB} MB.`);
       return;
     }
+    setUploadingDoc(docType);
     try {
       let applicationId = selectedApplicationId;
-
       if (!applicationId) {
         applicationId = await saveApplication(applicationDraftValues);
         setSelectedApplicationId(applicationId);
       }
-
-      const result = await saveDocument(
-        {
-          document: values.document,
-          expiry: formatDateLabel(values.expiry),
-          remarks: values.remarks,
-          file: docFile,
-          applicationId: applicationId ?? undefined,
-        },
-        editingDocId ?? undefined,
+      const existing = applicationDocuments.find((d) => d.document === docType);
+      await saveDocument(
+        { document: docType, expiry: "", remarks: "", file, applicationId: applicationId ?? undefined },
+        existing?.id ?? undefined,
       );
-      closeDocForm();
-      if (result.fileUploadWarning) {
-        toast.warning("Document saved, but the file could not be uploaded. Please try attaching the file again.");
-      } else {
-        toast.success(editingDocId ? "Document updated." : "Document uploaded.");
-      }
+      toast.success(`${docType} uploaded.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save document. Please try again.");
+      toast.error(err instanceof Error ? err.message : "Failed to upload document. Please try again.");
+    } finally {
+      setUploadingDoc(null);
     }
-  });
+  };
 
   const removeDocument = (documentId: string) => {
     deleteDocument(documentId);
-    if (editingDocId === documentId) closeDocForm();
     toast.success("Document removed.");
   };
 
@@ -457,15 +410,11 @@ export function VendorApplicationsPage() {
   const openNewApplicationModal = () => {
     setSelectedApplicationId(null);
     setApplicationDraftValues(defaultApplicationValues);
-    setShowDocForm(false);
-    setEditingDocId(null);
     setIsApplicationModalOpen(true);
   };
 
   const openApplicationModal = (applicationId: string) => {
     setSelectedApplicationId(applicationId);
-    setShowDocForm(false);
-    setEditingDocId(null);
     setIsApplicationModalOpen(true);
   };
 
@@ -577,167 +526,57 @@ export function VendorApplicationsPage() {
           {/* ── Required documents ── */}
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <CardTitle>Required documents</CardTitle>
-                  <CardDescription className="mt-1">
-                    {!selectedApplication
-                      ? "Upload compliance files for this application. A draft will be saved automatically if needed."
-                      : applicationDocuments.length > 0
-                        ? `Upload compliance files needed to process this application. ${verifiedDocs} of ${applicationDocuments.length} verified.`
-                        : "Upload compliance files needed to process this application. No documents uploaded yet."}
-                  </CardDescription>
-                </div>
-                <Button
-                  onClick={() => openDocForm()}
-                  size="sm"
-                  variant="secondary"
-                >
-                  <Upload className="mr-2 h-3 w-3" />Add document
-                </Button>
-              </div>
+              <CardTitle>Required documents</CardTitle>
+              <CardDescription className="mt-1">
+                Upload compliance files for this application. Each document can be replaced at any time.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Inline upload / edit form */}
-              {showDocForm ? (
-                <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-foreground">
-                      {editingDocId ? "Edit document" : "Upload document"}
-                    </p>
-                    <button
-                      aria-label="Close form"
-                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                      onClick={closeDocForm}
-                      type="button"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                  <form className="space-y-3" onSubmit={onDocSubmit}>
-                    <FieldGroup label="Document type">
-                      <Select {...docForm.register("document")}>
-                        <option>Barangay Clearance</option>
-                        <option>Police Clearance</option>
-                        <option>Health Clearance</option>
-                        <option>DTI Registration</option>
-                        <option>Business Permit</option>
-                      </Select>
-                      <FieldError message={docForm.formState.errors.document?.message} />
-                    </FieldGroup>
-
-                    {/* File attachment */}
-                    <FieldGroup label={editingDocId ? "Replace file (optional)" : "Attach file *"}>
-                      <input
-                        accept={ACCEPTED_DOC_TYPES}
-                        className="block w-full cursor-pointer rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-primary file:px-4 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"
-                        onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
-                        ref={docFileInputRef}
-                        type="file"
-                      />
-                      {docFile ? (
-                        <p className="text-xs text-muted-foreground">
-                          Selected: <span className="font-medium text-foreground">{docFile.name}</span> ({(docFile.size / 1024).toFixed(0)} KB)
-                        </p>
-                      ) : editingDoc?.fileUrl ? (
-                        <p className="text-xs text-muted-foreground">
-                          Current file attached — upload a new one to replace it.
-                        </p>
-                      ) : null}
-                    </FieldGroup>
-
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <FieldGroup label="Expiry date">
-                        <Input type="date" {...docForm.register("expiry")} />
-                        <FieldError message={docForm.formState.errors.expiry?.message} />
-                      </FieldGroup>
-                      <FieldGroup label="Remarks">
-                        <Input placeholder="Brief note about this upload" {...docForm.register("remarks")} />
-                        <FieldError message={docForm.formState.errors.remarks?.message} />
-                      </FieldGroup>
+            <CardContent className="space-y-3">
+              {REQUIRED_DOC_TYPES.map((docType) => {
+                const uploaded = applicationDocuments.find((d) => d.document === docType);
+                const isUploading = uploadingDoc === docType;
+                return (
+                  <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-3" key={docType}>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">{docType}</p>
+                      {uploaded ? (
+                        <div className="mt-1 flex items-center gap-2">
+                          <StatusBadge status={uploaded.status} />
+                          {uploaded.fileUrl ? (
+                            <a
+                              className="text-xs text-primary underline-offset-4 hover:underline"
+                              href={uploaded.fileUrl}
+                              rel="noopener noreferrer"
+                              target="_blank"
+                            >
+                              View file
+                            </a>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="mt-0.5 text-xs text-muted-foreground">No file uploaded yet</p>
+                      )}
                     </div>
-                    <div className="flex gap-2">
-                      <Button disabled={docForm.formState.isSubmitting} size="sm" type="submit">
-                        {editingDocId ? "Save changes" : "Upload document"}
-                      </Button>
-                      {editingDocId ? (
-                        <Button
-                          onClick={() => removeDocument(editingDocId)}
-                          size="sm"
-                          type="button"
-                          variant="destructive"
-                        >
-                          <Trash2 className="mr-2 h-3 w-3" />Delete
+                    <div className="flex shrink-0 items-center gap-2">
+                      <label className={`cursor-pointer rounded-full border-0 bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 ${isUploading ? "opacity-60 pointer-events-none" : ""}`}>
+                        {isUploading ? "Uploading…" : uploaded ? "Replace" : "Choose File"}
+                        <input
+                          accept={ACCEPTED_DOC_TYPES}
+                          className="sr-only"
+                          disabled={isUploading}
+                          onChange={(e) => handleDocFileChange(docType, e.target.files?.[0] ?? null)}
+                          type="file"
+                        />
+                      </label>
+                      {uploaded ? (
+                        <Button onClick={() => removeDocument(uploaded.id)} size="sm" variant="destructive">
+                          <Trash2 className="h-3 w-3" />
                         </Button>
                       ) : null}
-                      <Button onClick={closeDocForm} size="sm" type="button" variant="ghost">Cancel</Button>
                     </div>
-                  </form>
-                </div>
-              ) : null}
-
-              {/* Document table */}
-              {applicationDocuments.length === 0 && !showDocForm ? (
-                <div className="rounded-xl border border-dashed border-border p-6 text-center">
-                  <Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
-                  <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
-                  {selectedApplicationId ? (
-                    <Button className="mt-3" onClick={() => openDocForm()} size="sm" variant="outline">
-                      Upload your first document
-                    </Button>
-                  ) : null}
-                </div>
-              ) : applicationDocuments.length > 0 ? (
-                <div className="overflow-x-auto rounded-xl border border-border">
-                  <table className="min-w-full divide-y divide-border/80 text-left text-sm">
-                    <thead className="bg-muted/40 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold" scope="col">Document</th>
-                        <th className="px-4 py-3 font-semibold" scope="col">File</th>
-                        <th className="px-4 py-3 font-semibold" scope="col">Expiry</th>
-                        <th className="px-4 py-3 font-semibold" scope="col">Status</th>
-                        <th className="px-4 py-3 font-semibold" scope="col">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60">
-                      {applicationDocuments.map((doc) => (
-                        <tr
-                          className={`transition hover:bg-muted/30 ${editingDocId === doc.id ? "bg-primary/5" : ""}`}
-                          key={doc.id}
-                        >
-                          <td className="px-4 py-3 font-medium text-foreground">{doc.document}</td>
-                          <td className="px-4 py-3">
-                            {doc.fileUrl ? (
-                              <a
-                                className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
-                                href={doc.fileUrl}
-                                rel="noopener noreferrer"
-                                target="_blank"
-                              >
-                                View file
-                              </a>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">No file</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">{doc.expiry}</td>
-                          <td className="px-4 py-3"><StatusBadge status={doc.status} /></td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-2">
-                              <Button onClick={() => openDocForm(doc.id)} size="sm" variant="outline">
-                                <PencilLine className="mr-1 h-3 w-3" />Edit
-                              </Button>
-                              <Button onClick={() => removeDocument(doc.id)} size="sm" variant="destructive">
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
 

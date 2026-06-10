@@ -204,7 +204,7 @@ async function getVendor(profileId: string) {
     .maybeSingle();
 
   if (error) {
-    throw error;
+    throw new Error(error.message);
   }
 
   if (data) {
@@ -218,7 +218,7 @@ async function getVendor(profileId: string) {
     .single();
 
   if (profileError) {
-    throw profileError;
+    throw new Error(profileError.message);
   }
 
   if (profile.role !== "vendor") {
@@ -244,13 +244,13 @@ async function getVendor(profileId: string) {
         .single();
 
       if (retryError) {
-        throw retryError;
+        throw new Error(retryError.message);
       }
 
       return retryVendor;
     }
 
-    throw createError;
+    throw new Error(createError.message);
   }
 
   return createdVendor;
@@ -267,7 +267,7 @@ async function createNotification(profileId: string, title: string, detail: stri
   });
 
   if (error) {
-    throw error;
+    throw new Error(error.message);
   }
 }
 
@@ -528,7 +528,7 @@ export async function requestVendorLeaseRenewal(profileId: string): Promise<void
     detail: "Vendor has requested lease renewal.",
     status: "open",
   });
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 }
 
 export async function saveVendorApplication(
@@ -555,12 +555,12 @@ export async function saveVendorApplication(
       .select("id")
       .single();
 
-    if (error) throw error;
+    if (error) throw new Error(error.message);
     return data.id;
   }
 
   const { data, error } = await db.from("applications").insert(payload).select("id").single();
-  if (error) throw error;
+  if (error) throw new Error(error.message);
   return data.id;
 }
 
@@ -619,7 +619,7 @@ export async function deleteVendorApplication(profileId: string, applicationId: 
     .eq("id", applicationId)
     .eq("vendor_id", vendor.id);
 
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 }
 
 export async function saveVendorDocument(
@@ -635,7 +635,7 @@ export async function saveVendorDocument(
     .eq("name", input.document)
     .single();
 
-  if (requirementError) throw requirementError;
+  if (requirementError) throw new Error(requirementError.message);
 
   let applicationId: string | null = input.applicationId ?? null;
   let existingFileUrl: string | null = null;
@@ -648,7 +648,7 @@ export async function saveVendorDocument(
       .eq("id", documentId)
       .single();
 
-    if (existingDocError) throw existingDocError;
+    if (existingDocError) throw new Error(existingDocError.message);
     applicationId = existingDoc.application_id;
     existingFileUrl = existingDoc.file_url;
     existingFileName = existingDoc.file_name;
@@ -660,7 +660,7 @@ export async function saveVendorDocument(
       .order("updated_at", { ascending: false })
       .limit(1);
 
-    if (latestApplicationError) throw latestApplicationError;
+    if (latestApplicationError) throw new Error(latestApplicationError.message);
     applicationId = latestApplication?.[0]?.id ?? null;
   }
 
@@ -696,25 +696,28 @@ export async function saveVendorDocument(
     file_name: fileName,
     verification_status: "pending",
     remarks: input.remarks,
-    expiry_date: toIsoDate(input.expiry),
+    expiry_date: input.expiry ? toIsoDate(input.expiry) : null,
   };
 
-  const id = documentId
-    ? (
-        await db
-          .from("application_documents")
-          .update(payload)
-          .eq("id", documentId)
-          .select("id")
-          .single()
-      ).data?.id
-    : (
-        await db
-          .from("application_documents")
-          .upsert(payload, { onConflict: "application_id,requirement_id" })
-          .select("id")
-          .single()
-      ).data?.id;
+  let id: string | undefined;
+  if (documentId) {
+    const { data, error } = await db
+      .from("application_documents")
+      .update(payload)
+      .eq("id", documentId)
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    id = data?.id;
+  } else {
+    const { data, error } = await db
+      .from("application_documents")
+      .upsert(payload, { onConflict: "application_id,requirement_id" })
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    id = data?.id;
+  }
 
   if (!id) {
     throw new Error("Unable to save document.");
@@ -734,7 +737,7 @@ export async function saveVendorDocument(
 export async function deleteVendorDocument(documentId: string) {
   const db = requireSupabase();
   const { error } = await db.from("application_documents").delete().eq("id", documentId);
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 }
 
 export async function recordVendorPayment(
@@ -754,7 +757,7 @@ export async function recordVendorPayment(
     notes: "Submitted from vendor portal",
   });
 
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 
   await createNotification(
     profileId,
@@ -779,7 +782,7 @@ export async function submitVendorSupportRequest(
     detail: input.detail,
   });
 
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 
   await createNotification(
     profileId,
@@ -793,7 +796,7 @@ export async function submitVendorSupportRequest(
 export async function markAllVendorNotificationsRead(profileId: string) {
   const db = requireSupabase();
   const { error } = await db.from("notifications").update({ is_read: true }).eq("user_id", profileId);
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 }
 
 export async function toggleVendorNotificationRead(profileId: string, notificationId: string, read: boolean) {
@@ -803,7 +806,7 @@ export async function toggleVendorNotificationRead(profileId: string, notificati
     .update({ is_read: read })
     .eq("id", notificationId)
     .eq("user_id", profileId);
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 }
 
 export async function deleteVendorNotification(profileId: string, notificationId: string) {
@@ -813,5 +816,5 @@ export async function deleteVendorNotification(profileId: string, notificationId
     .delete()
     .eq("id", notificationId)
     .eq("user_id", profileId);
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 }
