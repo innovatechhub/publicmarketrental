@@ -38,7 +38,11 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/features/auth/auth-context";
-import { StallApplicationForm } from "@/features/applications/stall-application-form";
+import {
+  defaultApplicationValues,
+  StallApplicationForm,
+  type ApplicationValues,
+} from "@/features/applications/stall-application-form";
 import {
   formatCurrency,
   useVendorWorkspace,
@@ -351,6 +355,7 @@ export function VendorApplicationsPage() {
   const { applications, deleteApplication, saveApplication, submitApplication, documents, saveDocument, deleteDocument } = useVendorWorkspace();
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [isApplicationModalOpen, setIsApplicationModalOpen] = useState(false);
+  const [applicationDraftValues, setApplicationDraftValues] = useState<ApplicationValues>(defaultApplicationValues);
 
   // Document sub-form state (lives inside the application modal)
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
@@ -396,18 +401,21 @@ export function VendorApplicationsPage() {
       toast.error(`File must be under ${MAX_FILE_SIZE_MB} MB.`);
       return;
     }
-    if (!editingDocId && !selectedApplicationId) {
-      toast.error("Save the application as a draft first before uploading documents.");
-      return;
-    }
     try {
+      let applicationId = selectedApplicationId;
+
+      if (!applicationId) {
+        applicationId = await saveApplication(applicationDraftValues);
+        setSelectedApplicationId(applicationId);
+      }
+
       const result = await saveDocument(
         {
           document: values.document,
           expiry: formatDateLabel(values.expiry),
           remarks: values.remarks,
           file: docFile,
-          applicationId: selectedApplicationId ?? undefined,
+          applicationId: applicationId ?? undefined,
         },
         editingDocId ?? undefined,
       );
@@ -448,6 +456,7 @@ export function VendorApplicationsPage() {
 
   const openNewApplicationModal = () => {
     setSelectedApplicationId(null);
+    setApplicationDraftValues(defaultApplicationValues);
     setShowDocForm(false);
     setEditingDocId(null);
     setIsApplicationModalOpen(true);
@@ -549,9 +558,10 @@ export function VendorApplicationsPage() {
             description={
               selectedApplication
                 ? "Update the selected application, save revisions, or submit it for administrator review."
-                : "Prepare a new stall request. Drafts stay editable until you submit them."
+                : "Prepare a new stall request. Documents can be uploaded and the draft will be saved automatically if needed."
             }
             initialValues={selectedApplication ?? undefined}
+            onValuesChange={setApplicationDraftValues}
             onDelete={
               selectedApplication && canDeleteApplication(selectedApplication.status)
                 ? handleDeleteApplication
@@ -571,18 +581,16 @@ export function VendorApplicationsPage() {
                 <div>
                   <CardTitle>Required documents</CardTitle>
                   <CardDescription className="mt-1">
-                    {!selectedApplicationId
-                      ? "Save the application as a draft first to enable document uploads."
+                    {!selectedApplication
+                      ? "Upload compliance files for this application. A draft will be saved automatically if needed."
                       : applicationDocuments.length > 0
                         ? `Upload compliance files needed to process this application. ${verifiedDocs} of ${applicationDocuments.length} verified.`
                         : "Upload compliance files needed to process this application. No documents uploaded yet."}
                   </CardDescription>
                 </div>
                 <Button
-                  disabled={!selectedApplicationId}
                   onClick={() => openDocForm()}
                   size="sm"
-                  title={!selectedApplicationId ? "Save a draft first to unlock document uploads" : undefined}
                   variant="secondary"
                 >
                   <Upload className="mr-2 h-3 w-3" />Add document
@@ -1426,7 +1434,7 @@ function buildApplicationTimeline(application: VendorApplication) {
       active: reachedIndex >= 4,
       description:
         application.status === "Assigned"
-          ? `Assigned to ${application.preferredStallLabel}.`
+          ? `Application completed and assigned to ${application.preferredStallLabel}.`
           : "Waiting for stall assignment.",
     },
   ];

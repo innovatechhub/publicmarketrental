@@ -229,7 +229,7 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
   const db = requireSupabase();
   const vendor = await getVendor(profileId);
 
-  const [applicationsResult, notificationsResult, supportResult] = await Promise.all([
+  const [applicationsResult, notificationsResult, supportResult, leasesResult] = await Promise.all([
     db
       .from("applications")
       .select("id, preferred_stall_id, business_type, preferred_section, preferred_stall_type, status, submitted_at, updated_at, rejection_reason, remarks")
@@ -245,24 +245,32 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
       .select("id, subject, detail, status, created_at")
       .eq("vendor_id", vendor.id)
       .order("created_at", { ascending: false }),
+    db
+      .from("leases")
+      .select("id, vendor_id, stall_id, start_date, end_date, monthly_rate, status, renewal_status, notes, created_at")
+      .eq("vendor_id", vendor.id)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (applicationsResult.error) throw applicationsResult.error;
   if (notificationsResult.error) throw notificationsResult.error;
   if (supportResult.error) throw supportResult.error;
+  if (leasesResult.error) throw leasesResult.error;
 
   const applications = applicationsResult.data ?? [];
+  const leases = leasesResult.data ?? [];
   const preferredStallIds = applications
     .map((item) => item.preferred_stall_id)
     .filter((item): item is string => Boolean(item));
-  const activeStallIds: string[] = [];
-  const allStallIds = [...new Set([...preferredStallIds, ...activeStallIds])];
+  const leaseStallIds = leases.map((item) => item.stall_id).filter((item): item is string => Boolean(item));
+  const assignedApplication = applications.find((item) => item.status === "assigned" || item.status === "active") ?? null;
+  const allStallIds = [...new Set([...preferredStallIds, ...leaseStallIds])];
 
-  const [stallsResult, requirementsResult, documentsResult, paymentsResult] = await Promise.all([
+  const [stallsResult, requirementsResult, documentsResult, paymentsResult, billingsResult] = await Promise.all([
     allStallIds.length > 0
       ? db
           .from("stalls")
-          .select("id, stall_number, stall_type, monthly_rate, notes, section_id")
+          .select("id, stall_number, stall_type, monthly_rate, notes, section_id, status")
           .in("id", allStallIds)
       : Promise.resolve({ data: [], error: null }),
     db.from("document_requirements").select("id, name, sort_order"),
@@ -273,34 +281,73 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
           .in("application_id", applications.map((item) => item.id))
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
-      db
-          .from("payments")
-          .select("billing_id, payment_date, payment_method, receipt_number")
-          .eq("vendor_id", vendor.id)
+    db
+      .from("payments")
+      .select("billing_id, payment_date, payment_method, receipt_number")
+      .eq("vendor_id", vendor.id),
+    db
+      .from("billings")
+      .select("id, lease_id, billing_month, amount_due, amount_paid, due_date, status")
+      .order("billing_month", { ascending: false }),
   ]);
 
   if (stallsResult.error) throw stallsResult.error;
   if (requirementsResult.error) throw requirementsResult.error;
   if (documentsResult.error) throw documentsResult.error;
   if (paymentsResult.error) throw paymentsResult.error;
-
-  const sectionIds = [...new Set((stallsResult.data ?? []).map((item) => item.section_id))];
-  const [sectionsResult, billingsResult] = await Promise.all([
-    sectionIds.length > 0
-      ? db.from("market_sections").select("id, name").in("id", sectionIds)
-      : Promise.resolve({ data: [], error: null }),
-      db
-          .from("billings")
-          .select("id, billing_month, amount_due, amount_paid, due_date, status")
-          .order("billing_month", { ascending: false })
-  ]);
-
-  if (sectionsResult.error) throw sectionsResult.error;
   if (billingsResult.error) throw billingsResult.error;
 
-  const sectionsById = new Map((sectionsResult.data ?? []).map((item) => [item.id, item.name]));
+  type StallRow = {
+    id: string;
+    stall_number: string;
+    stall_type: string;
+    monthly_rate: number | null;
+    notes: string | null;
+    section_id: string;
+    status: string;
+  };
+  type SectionRow = { id: string; name: string };
+  type RequirementRow = { id: string; name: string; sort_order: number };
+  type PaymentRow = { billing_id: string; payment_date: string; payment_method: string; receipt_number: string | null };
+  type BillingRow = {
+    id: string;
+    lease_id: string;
+    billing_month: string;
+    amount_due: number | null;
+    amount_paid: number | null;
+    due_date: string;
+    status: string;
+  };
+  type DocumentRow = {
+    id: string;
+    application_id: string;
+    requirement_id: string;
+    file_name: string;
+    file_url: string;
+    verification_status: string;
+    remarks: string | null;
+    expiry_date: string | null;
+    created_at: string;
+  };
+
+  const stalls = (stallsResult.data ?? []) as StallRow[];
+  const requirements = (requirementsResult.data ?? []) as RequirementRow[];
+  const documents = (documentsResult.data ?? []) as DocumentRow[];
+  const payments = (paymentsResult.data ?? []) as PaymentRow[];
+  const billings = (billingsResult.data ?? []) as BillingRow[];
+
+  const currentLease = leases.find((item) => item.status === "active") ?? leases[0] ?? null;
+  const sectionIds = [...new Set(stalls.map((item) => item.section_id))];
+  const sectionsResult = sectionIds.length > 0
+    ? await db.from("market_sections").select("id, name").in("id", sectionIds)
+    : { data: [] as SectionRow[], error: null };
+
+  if (sectionsResult.error) throw sectionsResult.error;
+
+  const sections = (sectionsResult.data ?? []) as SectionRow[];
+  const sectionsById = new Map(sections.map((item) => [item.id, item.name]));
   const stallsById = new Map(
-    (stallsResult.data ?? []).map((item) => [
+    stalls.map((item) => [
       item.id,
       {
         ...item,
@@ -308,10 +355,15 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
       },
     ]),
   );
-  const requirementsById = new Map((requirementsResult.data ?? []).map((item) => [item.id, item.name]));
-  const latestPaymentsByBilling = new Map(
-    (paymentsResult.data ?? []).map((item) => [item.billing_id, item]),
-  );
+  const requirementsById = new Map(requirements.map((item) => [item.id, item.name]));
+  const latestPaymentsByBilling = new Map(payments.map((item) => [item.billing_id, item]));
+  const stallId = currentLease?.stall_id ?? assignedApplication?.preferred_stall_id ?? null;
+  const currentStall = stallId ? stallsById.get(stallId) : null;
+  const renewalStatus = currentLease
+    ? ["due_soon", "in_progress"].includes(currentLease.renewal_status)
+      ? "Pending Renewal Review"
+      : "Not Requested"
+    : "Not Requested";
 
   const mappedApplications: VendorApplicationRecord[] = applications.map((item) => {
     const preferredStall = item.preferred_stall_id ? stallsById.get(item.preferred_stall_id) : null;
@@ -335,7 +387,7 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
   });
 
   // Generate signed URLs for documents that have real storage paths
-  const storagePaths = (documentsResult.data ?? [])
+  const storagePaths = documents
     .map((d) => d.file_url)
     .filter((url): url is string => Boolean(url) && !url.startsWith("uploaded-via"));
 
@@ -353,7 +405,7 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
     }
   }
 
-  const mappedDocuments: VendorDocumentRecord[] = (documentsResult.data ?? []).map((item) => ({
+  const mappedDocuments: VendorDocumentRecord[] = documents.map((item) => ({
     id: item.id,
     applicationId: item.application_id,
     document: requirementsById.get(item.requirement_id) ?? item.file_name,
@@ -365,7 +417,7 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
     fileName: item.file_name ?? undefined,
   }));
 
-  const mappedBillings: VendorBillingRecord[] = (billingsResult.data ?? []).map((item) => {
+  const mappedBillings: VendorBillingRecord[] = billings.map((item) => {
     const latestPayment = latestPaymentsByBilling.get(item.id);
 
     return {
@@ -407,14 +459,15 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
     billings: mappedBillings,
     notifications: mappedNotifications,
     stall: {
-      stall: "No stall assigned",
-      section: "-",
-      type: "-",
-      rate: "-",
-      leaseStart: "-",
-      leaseEnd: "-",
-      notes: "-",
-      renewalStatus: "Not Requested" as const,
+      stall: currentStall ? `${currentStall.sectionName} ${currentStall.stall_number}` : "No stall assigned",
+      section: currentStall?.sectionName ?? "-",
+      type: currentStall?.stall_type ?? "-",
+      rate: currentStall ? formatCurrency(Number(currentStall.monthly_rate ?? 0)) : "-",
+      leaseStart: currentLease ? formatDisplayDate(currentLease.start_date) : "-",
+      leaseEnd: currentLease ? formatDisplayDate(currentLease.end_date) : "-",
+      notes: currentLease?.notes ?? currentStall?.notes ?? "No active lease notes available.",
+      renewalStatus: renewalStatus as "Not Requested" | "Pending Renewal Review",
+      renewalRequestedAt: currentLease?.created_at ? formatDisplayDate(currentLease.created_at) : undefined,
       supportRequests: mappedSupportRequests,
     },
   };

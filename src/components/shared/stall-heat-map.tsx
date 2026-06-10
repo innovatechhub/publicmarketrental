@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth/auth-context";
-import { saveStall } from "@/integrations/supabase/admin-service";
+import { fetchVendorOptions, saveStall } from "@/integrations/supabase/admin-service";
 import { isSupabaseConfigured } from "@/integrations/supabase/client";
 import type { AdminStallRecord } from "@/integrations/supabase/admin-service";
 
@@ -440,7 +440,7 @@ const inputCls =
   "w-full rounded-lg border border-gray-200 bg-[#f8faff] px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#1e3a8a] focus:bg-white transition";
 const selectCls = inputCls + " cursor-pointer";
 
-// ── Stall modal — shows occupant info if occupied, add-vendor form if available ─
+// ── Stall modal — shows occupant info if occupied, assign-vendor form if available ─
 function StallModal({ stall, stallNum, onClose }: {
   stall: AdminStallRecord | null;
   stallNum: string;
@@ -453,33 +453,24 @@ function StallModal({ stall, stallNum, onClose }: {
   const displayName = stall ? stall.stall : `Stall ${stallNum}`;
   const isOccupied = stall ? normalizeStatus(stall.status) === "occupied" : false;
 
-  const [form, setForm] = useState({
-    vendorName: "",
-    email: "",
-    phone: "",
-    stallType: stall?.type || "",
-    monthlyRent: String(stall?.rate || ""),
-    leaseStart: "",
-    leaseEnd: "",
-    status: "Occupied",
-    paymentStatus: "Paid",
-    vendorPassword: "",
+  const [selectedVendorId, setSelectedVendorId] = useState("");
+
+  const { data: vendorOptions = [], isPending: loadingVendors } = useQuery({
+    queryKey: ["admin-vendor-options"],
+    queryFn: fetchVendorOptions,
+    enabled: isSupabaseConfigured && !isOccupied,
   });
 
-  const f = <K extends keyof typeof form>(k: K) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setForm((prev) => ({ ...prev, [k]: e.target.value }));
-
-  const save = useMutation({
+  const assign = useMutation({
     mutationFn: () => {
       if (!stall) return Promise.reject(new Error("Stall record not found in database."));
       return saveStall(user!.id, {
         stallId: stall.id,
         sectionId: stall.sectionId,
         stallNumber: stall.stallNumber,
-        stallType: form.stallType,
-        monthlyRate: Number(form.monthlyRent),
-        status: form.status,
+        stallType: stall.type,
+        monthlyRate: stall.rate,
+        status: "occupied",
         notes: stall.notes,
       });
     },
@@ -488,26 +479,24 @@ function StallModal({ stall, stallNum, onClose }: {
         queryClient.invalidateQueries({ queryKey: ["admin-stalls"] }),
         queryClient.invalidateQueries({ queryKey: ["admin-dashboard-live"] }),
       ]);
-      toast.success(`Vendor added to ${displayName}`);
+      toast.success(`Vendor assigned to ${displayName}`);
       onClose();
     },
     onError: (e) => toast.error(String(e)),
   });
-
-  const canSave = form.vendorName && form.email && form.stallType && form.monthlyRent && form.leaseStart && form.leaseEnd;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
         className="relative bg-white rounded-xl shadow-2xl w-full overflow-hidden"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 500, maxHeight: "92vh", display: "flex", flexDirection: "column" }}
+        style={{ maxWidth: 460, maxHeight: "92vh", display: "flex", flexDirection: "column" }}
       >
         {/* ── Header ── */}
         <div className="px-7 pt-6 pb-4 border-b-2" style={{ borderColor: isOccupied ? "#dc2626" : "#1e3a8a" }}>
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold tracking-wide" style={{ color: isOccupied ? "#dc2626" : "#1e3a8a" }}>
-              {isOccupied ? "CURRENT OCCUPANT" : "ADD NEW VENDOR"}
+              {isOccupied ? "CURRENT OCCUPANT" : "ASSIGN VENDOR"}
             </h2>
             <button className="text-gray-400 hover:text-gray-600 transition text-xl font-light leading-none" onClick={onClose} type="button">×</button>
           </div>
@@ -520,7 +509,7 @@ function StallModal({ stall, stallNum, onClose }: {
           </MF>
 
           {isOccupied ? (
-            /* ── Occupied: show read-only current leaser info ── */
+            /* ── Occupied: show read-only current occupant info ── */
             <>
               <div style={{ background: "#fff7f7", border: "1px solid #fecaca", borderRadius: 10, padding: "14px 16px" }}>
                 <p style={{ fontSize: 11, fontWeight: 700, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>This stall is currently occupied</p>
@@ -538,70 +527,20 @@ function StallModal({ stall, stallNum, onClose }: {
               </p>
             </>
           ) : (
-            /* ── Available: show add-vendor form ── */
-            <>
-              <MF label="Vendor Name" required>
-                <input className={inputCls} onChange={f("vendorName")} placeholder="Full name of vendor" type="text" value={form.vendorName} />
-              </MF>
-
-              <div className="grid grid-cols-2 gap-3">
-                <MF label="Email" required>
-                  <input className={inputCls} onChange={f("email")} placeholder="email@example.com" type="email" value={form.email} />
-                </MF>
-                <MF label="Phone" required>
-                  <input className={inputCls} onChange={f("phone")} placeholder="09XX-XXX-XXXX" type="tel" value={form.phone} />
-                </MF>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <MF label="Stall Type" required>
-                  <select className={selectCls} onChange={f("stallType")} value={form.stallType}>
-                    <option value="">Select type</option>
-                    <option>General Merchandise</option>
-                    <option>Fish</option>
-                    <option>Meat</option>
-                    <option>Produce</option>
-                    <option>Dry Goods</option>
-                    <option>Food Stall</option>
-                  </select>
-                </MF>
-                <MF label="Monthly Rent (₱)" required>
-                  <input className={inputCls} min="0" onChange={f("monthlyRent")} placeholder="0.00" type="number" value={form.monthlyRent} />
-                </MF>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <MF label="Lease Start" required>
-                  <input className={inputCls} onChange={f("leaseStart")} type="date" value={form.leaseStart} />
-                </MF>
-                <MF label="Lease End" required>
-                  <input className={inputCls} onChange={f("leaseEnd")} type="date" value={form.leaseEnd} />
-                </MF>
-              </div>
-
-              <MF label="Status" required>
-                <select className={selectCls} onChange={f("status")} value={form.status}>
-                  <option>Available</option>
-                  <option>Occupied</option>
-                  <option>Reserved</option>
-                  <option>Under Maintenance</option>
-                  <option>Inactive</option>
-                </select>
-              </MF>
-
-              <MF label="Payment Status" required>
-                <select className={selectCls} onChange={f("paymentStatus")} value={form.paymentStatus}>
-                  <option>Paid</option>
-                  <option>Unpaid</option>
-                  <option>Overdue</option>
-                  <option>Partial</option>
-                </select>
-              </MF>
-
-              <MF label="Vendor Password" required>
-                <input className={inputCls} onChange={f("vendorPassword")} placeholder="Set login password for vendor" type="password" value={form.vendorPassword} />
-              </MF>
-            </>
+            /* ── Available: pick existing vendor from dropdown ── */
+            <MF label="Select Vendor" required>
+              <select
+                className={selectCls}
+                disabled={loadingVendors}
+                onChange={(e) => setSelectedVendorId(e.target.value)}
+                value={selectedVendorId}
+              >
+                <option value="">{loadingVendors ? "Loading vendors…" : "— Choose a vendor —"}</option>
+                {vendorOptions.map((v) => (
+                  <option key={v.value} value={v.value}>{v.label}</option>
+                ))}
+              </select>
+            </MF>
           )}
         </div>
 
@@ -610,12 +549,12 @@ function StallModal({ stall, stallNum, onClose }: {
           {!isOccupied && (
             <button
               className="flex-1 py-3 rounded-lg text-sm font-bold text-white transition hover:opacity-90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!canSave || save.isPending}
-              onClick={() => save.mutate()}
+              disabled={!selectedVendorId || assign.isPending}
+              onClick={() => assign.mutate()}
               style={{ background: "#1e3a8a" }}
               type="button"
             >
-              {save.isPending ? "SAVING…" : "SAVE VENDOR"}
+              {assign.isPending ? "ASSIGNING…" : "ASSIGN VENDOR"}
             </button>
           )}
           <button

@@ -17,6 +17,15 @@ const applicationSchema = z.object({
 
 type ApplicationValues = z.infer<typeof applicationSchema>;
 
+export type { ApplicationValues };
+
+export const defaultApplicationValues: ApplicationValues = {
+  businessType: "Native delicacies",
+  preferredSection: "Dry Goods",
+  preferredStallType: "General Merchandise",
+  notes: "Selling native snacks, tablea, and local delicacies for daily walk-in buyers.",
+};
+
 interface StallApplicationFormProps {
   initialValues?: Partial<ApplicationValues>;
   title?: string;
@@ -26,14 +35,8 @@ interface StallApplicationFormProps {
   onSaveDraft: (values: ApplicationValues) => Promise<void> | void;
   onSubmitApplication?: (values: ApplicationValues) => Promise<void> | void;
   onDelete?: () => void;
+  onValuesChange?: (values: ApplicationValues) => void;
 }
-
-const defaultValues: ApplicationValues = {
-  businessType: "Native delicacies",
-  preferredSection: "Dry Goods",
-  preferredStallType: "General Merchandise",
-  notes: "Selling native snacks, tablea, and local delicacies for daily walk-in buyers.",
-};
 
 export function StallApplicationForm({
   initialValues,
@@ -44,15 +47,28 @@ export function StallApplicationForm({
   onSaveDraft,
   onSubmitApplication,
   onDelete,
+  onValuesChange,
 }: StallApplicationFormProps) {
   const form = useForm<ApplicationValues>({
     resolver: zodResolver(applicationSchema),
-    defaultValues: { ...defaultValues, ...initialValues },
+    defaultValues: { ...defaultApplicationValues, ...initialValues },
   });
 
   useEffect(() => {
-    form.reset({ ...defaultValues, ...initialValues });
-  }, [form, initialValues]);
+    const nextValues = { ...defaultApplicationValues, ...initialValues };
+    form.reset(nextValues);
+    onValuesChange?.(nextValues);
+  }, [form, initialValues, onValuesChange]);
+
+  useEffect(() => {
+    onValuesChange?.(form.getValues());
+
+    const subscription = form.watch((values) => {
+      onValuesChange?.(values as ApplicationValues);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [form, onValuesChange]);
 
   const isSubmitting = form.formState.isSubmitting;
   const handleSaveDraft = form.handleSubmit(async (values) => {

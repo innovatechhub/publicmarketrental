@@ -58,8 +58,10 @@ import {
   fetchStalls,
   fetchUserOptions,
   fetchVendorOptions,
+  fetchVendorLeaseRates,
   fetchVendorRegistry,
   fetchViolations,
+  completeApplicationAssignment,
   saveDocumentRequirement,
   saveStall,
   saveSystemSetting,
@@ -350,10 +352,12 @@ export function AdminApplicationsPage() {
   const { user } = useAuth();
   const { data, isPending, error } = useQuery({ queryKey: queryKeys.applications, queryFn: fetchApplications, enabled: isSupabaseConfigured });
   const { data: vendorOptions = [] } = useQuery({ queryKey: queryKeys.vendorOptions, queryFn: fetchVendorOptions, enabled: isSupabaseConfigured });
+  const { data: stallOptions = [] } = useQuery({ queryKey: queryKeys.stallOptions, queryFn: () => fetchStallOptions(), enabled: isSupabaseConfigured });
   const [modal, setModal] = useState<"review" | "details" | "walk-in" | null>(null);
   const [reviewId, setReviewId] = useState("");
   const [remarks, setRemarks] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
+  const [assignedStallId, setAssignedStallId] = useState("");
   const [walkIn, setWalkIn] = useState({ vendorId: "", businessType: "", preferredSection: "Dry Goods", preferredStallType: "General Merchandise", remarks: "" });
 
   const selected = data?.rows.find((r) => r.id === reviewId);
@@ -369,6 +373,7 @@ export function AdminApplicationsPage() {
     setReviewId(id);
     setRemarks(app.remarks);
     setRejectionReason(app.rejectionReason);
+    setAssignedStallId(app.preferredStallId ?? "");
     setModal("review");
   };
 
@@ -385,6 +390,20 @@ export function AdminApplicationsPage() {
     onSuccess: async () => {
       await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.applications }), queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })]);
       toast.success("Application review updated.");
+      setModal(null);
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const completeAssignment = useMutation({
+    mutationFn: async () => completeApplicationAssignment(user!.id, { applicationId: reviewId, stallId: assignedStallId, remarks }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.applications }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.stalls }),
+      ]);
+      toast.success("Application completed and stall assigned.");
       setModal(null);
     },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -465,7 +484,14 @@ export function AdminApplicationsPage() {
                 <MockupTd>{item.businessType}</MockupTd>
                 <MockupTd style={{ color: "#6b7280", fontSize: "13px" }}>—</MockupTd>
                 <MockupTd>{item.preferredStallLabel}</MockupTd>
-                <MockupTd><AppStatusBadge status={item.status} /></MockupTd>
+                <MockupTd>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <AppStatusBadge status={item.status} />
+                    {item.status === "Assigned" ? (
+                      <Badge variant="success" style={{ width: "fit-content" }}>Assigned stall</Badge>
+                    ) : null}
+                  </div>
+                </MockupTd>
                 <MockupTd>
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button onClick={() => openDetails(item.id)} style={{ background: "none", border: "none", color: "#1e3a8a", fontWeight: 600, cursor: "pointer", fontSize: "13px", padding: 0 }} type="button">View</button>
@@ -646,9 +672,23 @@ export function AdminApplicationsPage() {
           <Field label="Rejection / resubmission note">
             <Textarea onChange={(e) => setRejectionReason(e.target.value)} rows={3} value={rejectionReason} />
           </Field>
+          <Field label="Assign stall">
+            <Select onChange={(e) => setAssignedStallId(e.target.value)} value={assignedStallId}>
+              <option value="">Select a stall</option>
+              {(stallOptions as AdminOption[]).map((stall) => (
+                <option key={stall.value} value={stall.value}>{stall.label}</option>
+              ))}
+            </Select>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Choose a stall to complete the application. This will create the lease and mark the stall as occupied.
+            </p>
+          </Field>
           <ModalFooter>
             <Button onClick={() => review.mutate("under_review")} variant="outline">Mark under review</Button>
             <Button onClick={() => review.mutate("approved")}><CheckCircle2 className="mr-2 h-4 w-4" />Approve</Button>
+            <Button disabled={!assignedStallId || completeAssignment.isPending} onClick={() => completeAssignment.mutate()}>
+              <CheckCircle2 className="mr-2 h-4 w-4" />Approve & assign
+            </Button>
             <Button onClick={() => review.mutate("needs_resubmission")} variant="secondary">Needs resubmission</Button>
             <Button onClick={() => review.mutate("rejected")} variant="destructive">Reject</Button>
           </ModalFooter>
@@ -838,6 +878,7 @@ export function AdminBillingPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const { data: vendors = [] } = useQuery({ queryKey: queryKeys.vendorOptions, queryFn: fetchVendorOptions, enabled: isSupabaseConfigured });
+  const { data: vendorLeaseRates = {} } = useQuery({ queryKey: ["admin-vendor-lease-rates"], queryFn: fetchVendorLeaseRates, enabled: isSupabaseConfigured });
   const [form, setForm] = useState({ vendorId: "", billingMonth: todayIso(), amountDue: "0", dueDate: todayIso(), penalties: "0", notes: "" });
 
   const selected = data?.rows.find((r) => r.id === editId);
@@ -905,7 +946,14 @@ export function AdminBillingPage() {
         <Modal onClose={() => setShowModal(false)} title={editId ? "Edit billing" : "Create billing"}>
           {!editId && (
             <Field label="Vendor">
-              <Select onChange={(e) => setForm((c) => ({ ...c, vendorId: e.target.value }))} value={form.vendorId}>
+              <Select
+                onChange={(e) => {
+                  const vendorId = e.target.value;
+                  const rate = (vendorLeaseRates as Record<string, number | null>)[vendorId];
+                  setForm((c) => ({ ...c, vendorId, amountDue: rate != null ? String(rate) : c.amountDue }));
+                }}
+                value={form.vendorId}
+              >
                 <option value="">Select vendor</option>
                 {(vendors as AdminOption[]).map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
               </Select>

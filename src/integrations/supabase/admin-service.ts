@@ -261,6 +261,8 @@ interface LeaseCoreRecord {
   start_date: string;
   end_date: string;
   monthly_rate: number;
+  renewal_status: string;
+  created_at?: string;
 }
 
 interface CoreMaps {
@@ -318,7 +320,7 @@ async function loadCoreMaps(): Promise<CoreMaps> {
     db.from("vendors").select("id, profile_id, business_name, business_type, status"),
     db.from("market_sections").select("id, name, code").order("sort_order", { ascending: true }),
     db.from("stalls").select("id, section_id, stall_number, stall_type, monthly_rate, status, notes"),
-    db.from("leases").select("id, vendor_id, stall_id, status, start_date, end_date, monthly_rate").order("start_date", { ascending: false }),
+    db.from("leases").select("id, vendor_id, stall_id, start_date, end_date, monthly_rate, status, renewal_status, created_at").order("created_at", { ascending: false }),
   ]);
 
   if (profilesResult.error) throw profilesResult.error;
@@ -531,6 +533,16 @@ export async function fetchVendorOptions(): Promise<AdminOption[]> {
   }));
 }
 
+export async function fetchVendorLeaseRates(): Promise<Record<string, number | null>> {
+  const core = await loadCoreMaps();
+  const out: Record<string, number | null> = {};
+  for (const vendor of core.vendors) {
+    const stall = core.stalls.find((s) => s.status === "occupied");
+    out[vendor.id] = stall ? Number(stall.monthly_rate ?? null) : null;
+  }
+  return out;
+}
+
 export async function fetchUserOptions(): Promise<AdminOption[]> {
   const core = await loadCoreMaps();
   return core.profiles.map((item) => ({
@@ -555,9 +567,10 @@ export async function fetchVendorRegistry(): Promise<{
 }> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const [billingsResult, paymentsResult] = await Promise.all([
-    db.from("billings").select("id, lease_id, amount_due, amount_paid"),
+  const [billingsResult, paymentsResult, violationsResult] = await Promise.all([
+    db.from("billings").select("id, vendor_id, amount_due, amount_paid"),
     db.from("payments").select("id, vendor_id, payment_date").order("payment_date", { ascending: false }),
+    db.from("violations").select("stall_id, vendor_id").order("created_at", { ascending: false }),
   ]);
 
   if (billingsResult.error) throw billingsResult.error;
@@ -566,12 +579,18 @@ export async function fetchVendorRegistry(): Promise<{
   const billings = billingsResult.data ?? [];
   const payments = paymentsResult.data ?? [];
 
+  const stallByVendorId = new Map<string, string>();
+  for (const v of violationsResult.data ?? []) {
+    if (v.stall_id && v.vendor_id && !stallByVendorId.has(v.vendor_id)) {
+      stallByVendorId.set(v.vendor_id, v.stall_id);
+    }
+  }
+
   const balanceByVendor = new Map<string, number>();
   for (const billing of billings) {
-    const lease = core.leaseById.get(billing.lease_id);
-    if (!lease) continue;
-    const existing = balanceByVendor.get(lease.vendor_id) ?? 0;
-    balanceByVendor.set(lease.vendor_id, existing + Math.max(Number(billing.amount_due ?? 0) - Number(billing.amount_paid ?? 0), 0));
+    if (!billing.vendor_id) continue;
+    const existing = balanceByVendor.get(billing.vendor_id) ?? 0;
+    balanceByVendor.set(billing.vendor_id, existing + Math.max(Number(billing.amount_due ?? 0) - Number(billing.amount_paid ?? 0), 0));
   }
 
   const lastPaymentByVendor = new Map<string, string>();
@@ -583,8 +602,8 @@ export async function fetchVendorRegistry(): Promise<{
 
   const rows = core.vendors.map((vendor) => {
     const profile = core.profileById.get(vendor.profile_id);
-    const lease = core.activeLeaseByVendorId.get(vendor.id) ?? core.leaseByVendorId.get(vendor.id);
-    const assignedStall = lease?.stall_id ? core.stallById.get(lease.stall_id)?.label ?? "-" : "-";
+    const stallId = stallByVendorId.get(vendor.id);
+    const assignedStall = stallId ? core.stallById.get(stallId)?.label ?? "-" : "-";
 
     return {
       id: vendor.id,
@@ -879,6 +898,118 @@ export async function updateApplicationReview(
   });
 }
 
+function addMonthsIso(value: string, months: number) {
+  const date = new Date(value);
+  date.setMonth(date.getMonth() + months);
+  return date.toISOString().slice(0, 10);
+}
+
+export async function completeApplicationAssignment(
+  actorId: string,
+  input: {
+    applicationId: string;
+    stallId: string;
+    remarks: string;
+  },
+) {
+  const db = requireSupabase();
+  const core = await loadCoreMaps();
+  const { data: application, error: applicationError } = await db
+    .from("applications")
+    .select("id, vendor_id, preferred_stall_id, status, remarks")
+    .eq("id", input.applicationId)
+    .single();
+
+  if (applicationError) throw applicationError;
+
+  const { data: stall, error: stallError } = await db
+    .from("stalls")
+    .select("id, stall_number, stall_type, monthly_rate, status, section_id")
+    .eq("id", input.stallId)
+    .single();
+
+  if (stallError) throw stallError;
+
+  if (!stall) {
+    throw new Error("Selected stall was not found.");
+  }
+
+  const existingLease = core.leaseByVendorId.get(application.vendor_id) ?? null;
+  if (stall.status === "occupied" && existingLease?.stall_id !== stall.id) {
+    throw new Error("Selected stall is already occupied.");
+  }
+
+  const { data: vendor, error: vendorError } = await db
+    .from("vendors")
+    .select("profile_id")
+    .eq("id", application.vendor_id)
+    .single();
+
+  if (vendorError) throw vendorError;
+
+  const nowIso = new Date().toISOString();
+  const startDate = nowIso.slice(0, 10);
+  const endDate = addMonthsIso(startDate, 12);
+  const leasePayload = {
+    vendor_id: application.vendor_id,
+    stall_id: stall.id,
+    start_date: startDate,
+    end_date: endDate,
+    monthly_rate: Number(stall.monthly_rate ?? 0),
+    status: "active",
+    renewal_status: "not_due",
+    created_by: actorId,
+  };
+
+  if (existingLease) {
+    const { error: leaseError } = await db
+      .from("leases")
+      .update(leasePayload)
+      .eq("id", existingLease.id);
+
+    if (leaseError) throw leaseError;
+  } else {
+    const { error: leaseError } = await db.from("leases").insert(leasePayload);
+    if (leaseError) throw leaseError;
+  }
+
+  if (existingLease?.stall_id && existingLease.stall_id !== stall.id) {
+    const { error: oldStallError } = await db.from("stalls").update({ status: "available" }).eq("id", existingLease.stall_id);
+    if (oldStallError) throw oldStallError;
+  }
+
+  const { error: stallErrorUpdate } = await db.from("stalls").update({ status: "occupied" }).eq("id", stall.id);
+  if (stallErrorUpdate) throw stallErrorUpdate;
+
+  const { error: applicationUpdateError } = await db
+    .from("applications")
+    .update({
+      status: "assigned",
+      preferred_stall_id: stall.id,
+      reviewed_by: actorId,
+      reviewed_at: nowIso,
+      remarks: input.remarks || application.remarks || null,
+      rejection_reason: null,
+    })
+    .eq("id", input.applicationId);
+
+  if (applicationUpdateError) throw applicationUpdateError;
+
+  await notifyUser(
+    vendor.profile_id,
+    "Application completed",
+    `Your stall application has been completed and assigned to ${core.stallById.get(stall.id)?.label ?? `stall ${stall.stall_number}`}.`,
+    "assigned",
+    "/vendor/applications",
+  );
+
+  await logActivity(actorId, "assigned", "lease", existingLease?.id ?? input.applicationId, {
+    applicationId: input.applicationId,
+    stallId: stall.id,
+    monthlyRate: Number(stall.monthly_rate ?? 0),
+  });
+}
+
 export async function fetchDocumentQueue(): Promise<{
   summary: [string, string][];
   rows: AdminDocumentRecord[];
@@ -1087,20 +1218,32 @@ export async function fetchBillings(): Promise<{
   const core = await loadCoreMaps();
   const { data, error } = await db
     .from("billings")
-    .select("id, lease_id, billing_month, amount_due, due_date, amount_paid, status, penalties, notes")
+    .select("id, vendor_id, billing_month, amount_due, due_date, amount_paid, status, penalties, notes")
     .order("billing_month", { ascending: false });
 
   if (error) throw error;
 
+  const { data: violationsForBillings } = await db
+    .from("violations")
+    .select("stall_id, vendor_id")
+    .order("created_at", { ascending: false });
+
+  const stallByVendorId = new Map<string, string>();
+  for (const v of violationsForBillings ?? []) {
+    if (v.stall_id && v.vendor_id && !stallByVendorId.has(v.vendor_id)) {
+      stallByVendorId.set(v.vendor_id, v.stall_id);
+    }
+  }
+
   const rows = (data ?? []).map((item) => {
-    const lease = core.leaseById.get(item.lease_id);
-    const vendor = lease ? core.vendorById.get(lease.vendor_id) : null;
+    const vendor = item.vendor_id ? core.vendorById.get(item.vendor_id) : null;
     const profile = vendor ? core.profileById.get(vendor.profile_id) : null;
-    const stall = lease?.stall_id ? core.stallById.get(lease.stall_id)?.label ?? "-" : "-";
+    const stallId = item.vendor_id ? stallByVendorId.get(item.vendor_id) : undefined;
+    const stall = stallId ? core.stallById.get(stallId)?.label ?? "-" : "-";
 
     return {
       id: item.id,
-      vendorId: lease?.vendor_id ?? "",
+      vendorId: item.vendor_id ?? "",
       vendorProfileId: vendor?.profile_id ?? "",
       vendor: vendor?.business_name ?? profile?.full_name ?? "Unknown vendor",
       stall,
@@ -1240,26 +1383,21 @@ export async function createPayment(
   },
 ) {
   const db = requireSupabase();
-  const core = await loadCoreMaps();
   const { data: billing, error: billingError } = await db
     .from("billings")
-    .select("id, lease_id")
+    .select("id, vendor_id")
     .eq("id", input.billingId)
     .single();
 
   if (billingError) throw billingError;
   if (!billing) throw new Error("Billing record not found.");
-
-  const lease = billing.lease_id ? core.leaseById.get(billing.lease_id) : null;
-  if (!lease) {
-    throw new Error("Selected billing record is not linked to an active lease.");
-  }
+  if (!billing.vendor_id) throw new Error("Billing record has no associated vendor.");
 
   const { data, error } = await db
     .from("payments")
     .insert({
       billing_id: input.billingId,
-      vendor_id: lease.vendor_id,
+      vendor_id: billing.vendor_id,
       amount: input.amount,
       payment_date: input.paymentDate,
       payment_method: input.method,

@@ -135,7 +135,8 @@ create table public.application_documents (
 
 create table public.billings (
   id uuid primary key default gen_random_uuid(),
-  lease_id uuid not null references public.leases(id) on delete cascade,
+  lease_id uuid references public.leases(id) on delete cascade,
+  vendor_id uuid references public.vendors(id) on delete cascade,
   billing_month date not null,
   amount_due numeric(12,2) not null default 0,
   amount_paid numeric(12,2) not null default 0,
