@@ -28,6 +28,7 @@ import {
   PencilLine,
   Plus,
   Printer,
+  ExternalLink,
   Save,
   Send,
   ShieldAlert,
@@ -66,6 +67,7 @@ import {
   saveStall,
   saveSystemSetting,
   saveViolation,
+  reviewPayment,
   toggleAdminNotificationRead,
   updateApplicationReview,
   updateBilling,
@@ -121,9 +123,11 @@ const queryKeys = {
 } as const;
 
 const defaultReportFilters: ReportFiltersInput = {
-  dateFrom: "2026-03-01",
-  dateTo: "2026-03-22",
-  section: "All sections",
+  month: "All months",
+  year: String(new Date().getFullYear()),
+  section: "All blocks",
+  stallNumber: "",
+  vendorName: "",
   paymentStatus: "Any status",
 };
 
@@ -879,13 +883,13 @@ export function AdminBillingPage() {
   const [showModal, setShowModal] = useState(false);
   const { data: vendors = [] } = useQuery({ queryKey: queryKeys.vendorOptions, queryFn: fetchVendorOptions, enabled: isSupabaseConfigured });
   const { data: vendorLeaseRates = {} } = useQuery({ queryKey: ["admin-vendor-lease-rates"], queryFn: fetchVendorLeaseRates, enabled: isSupabaseConfigured });
-  const [form, setForm] = useState({ vendorId: "", billingMonth: todayIso(), amountDue: "0", dueDate: todayIso(), penalties: "0", notes: "" });
+  const [form, setForm] = useState({ vendorId: "", billingMonth: todayIso(), dueDate: todayIso(), notes: "" });
 
   const selected = data?.rows.find((r) => r.id === editId);
 
   const openCreate = () => {
     setEditId(null);
-    setForm({ vendorId: "", billingMonth: todayIso(), amountDue: "0", dueDate: todayIso(), penalties: "0", notes: "" });
+    setForm({ vendorId: "", billingMonth: todayIso(), dueDate: todayIso(), notes: "" });
     setShowModal(true);
   };
 
@@ -893,15 +897,15 @@ export function AdminBillingPage() {
     const b = data?.rows.find((r) => r.id === id);
     if (!b) return;
     setEditId(id);
-    setForm({ vendorId: b.vendorId, billingMonth: b.billingMonthIso, amountDue: String(b.amountDue), dueDate: b.dueDateIso, penalties: String(b.penalties), notes: b.notes });
+    setForm({ vendorId: b.vendorId, billingMonth: b.billingMonthIso, dueDate: b.dueDateIso, notes: b.notes });
     setShowModal(true);
   };
 
   const save = useMutation({
     mutationFn: async () =>
       editId
-        ? updateBilling(user!.id, { billingId: editId, billingMonth: form.billingMonth, amountDue: Number(form.amountDue), dueDate: form.dueDate, penalties: Number(form.penalties), notes: form.notes })
-        : createBilling(user!.id, { vendorId: form.vendorId, billingMonth: form.billingMonth, amountDue: Number(form.amountDue), dueDate: form.dueDate, penalties: Number(form.penalties), notes: form.notes }),
+        ? updateBilling(user!.id, { billingId: editId, billingMonth: form.billingMonth, dueDate: form.dueDate, notes: form.notes })
+        : createBilling(user!.id, { vendorId: form.vendorId, billingMonth: form.billingMonth, dueDate: form.dueDate, notes: form.notes }),
     onSuccess: async () => {
       await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.billings }), queryClient.invalidateQueries({ queryKey: queryKeys.dashboard })]);
       toast.success(editId ? "Billing updated." : "Billing created.");
@@ -949,8 +953,7 @@ export function AdminBillingPage() {
               <Select
                 onChange={(e) => {
                   const vendorId = e.target.value;
-                  const rate = (vendorLeaseRates as Record<string, number | null>)[vendorId];
-                  setForm((c) => ({ ...c, vendorId, amountDue: rate != null ? String(rate) : c.amountDue }));
+                  setForm((c) => ({ ...c, vendorId }));
                 }}
                 value={form.vendorId}
               >
@@ -962,8 +965,8 @@ export function AdminBillingPage() {
           <FormGrid>
             <Field label="Billing month"><Input onChange={(e) => setForm((c) => ({ ...c, billingMonth: e.target.value }))} type="date" value={form.billingMonth} /></Field>
             <Field label="Due date"><Input onChange={(e) => setForm((c) => ({ ...c, dueDate: e.target.value }))} type="date" value={form.dueDate} /></Field>
-            <Field label="Amount due"><Input onChange={(e) => setForm((c) => ({ ...c, amountDue: e.target.value }))} type="number" value={form.amountDue} /></Field>
-            <Field label="Penalties"><Input onChange={(e) => setForm((c) => ({ ...c, penalties: e.target.value }))} type="number" value={form.penalties} /></Field>
+            <Field label="Base rent"><Input disabled value={editId ? formatCurrency(selected?.baseAmount ?? 0) : formatCurrency((vendorLeaseRates as Record<string, number | null>)[form.vendorId] ?? 0)} /></Field>
+            <Field label="Amount due"><Input disabled value={editId ? formatCurrency(selected?.amountDue ?? 0) : "Calculated after creation"} /></Field>
           </FormGrid>
           <Field label="Notes"><Textarea onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} rows={3} value={form.notes} /></Field>
           <ModalFooter>
@@ -1012,6 +1015,16 @@ export function AdminPaymentsPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
+  const review = useMutation({
+    mutationFn: async ({ groupId, status }: { groupId: string; status: "verified" | "rejected" }) =>
+      reviewPayment(user!.id, groupId, status),
+    onSuccess: async () => {
+      await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.payments }), queryClient.invalidateQueries({ queryKey: queryKeys.billings })]);
+      toast.success("Payment review saved.");
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
   const unpaidCount = billingRows.filter((r) => r.status === "Unpaid" || r.status === "Overdue").length;
   const partialCount = billingRows.filter((r) => r.status === "Partial").length;
   const totalOutstanding = billingRows.reduce((sum, r) => sum + Math.max(r.amountDue - r.amountPaid, 0), 0);
@@ -1030,6 +1043,33 @@ export function AdminPaymentsPage() {
           <PaymentSummaryCard label="Partial Payments" value={String(partialCount)} color="#1d4ed8" />
         </div>
       )}
+
+      {paymentRows.length > 0 ? (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-800">Payment records and submissions</h3>
+          <Tbl head={["Reference", "Vendor", "Date", "Amount", "Method", "Status", "Proof", "Review"]}>
+            {paymentRows.map((item) => (
+              <Tr key={item.id}>
+                <Td>{item.internalReference}</Td>
+                <Td>{item.vendor}</Td>
+                <Td>{item.paymentDate}</Td>
+                <Td>{formatCurrency(item.amount)}</Td>
+                <Td>{item.method}{item.receipt !== "-" ? ` · ${item.receipt}` : ""}</Td>
+                <Td><StatusBadge status={item.verificationStatus} /></Td>
+                <Td>{item.proofUrl ? <a className="inline-flex items-center gap-1 text-primary underline" href={item.proofUrl} rel="noreferrer" target="_blank">View <ExternalLink className="h-3 w-3" /></a> : "—"}</Td>
+                <Td>
+                  {item.verificationStatus === "Pending" ? (
+                    <div className="flex gap-2">
+                      <Button disabled={review.isPending} onClick={() => review.mutate({ groupId: item.paymentGroupId, status: "verified" })} size="sm">Verify</Button>
+                      <Button disabled={review.isPending} onClick={() => review.mutate({ groupId: item.paymentGroupId, status: "rejected" })} size="sm" variant="destructive">Reject</Button>
+                    </div>
+                  ) : "—"}
+                </Td>
+              </Tr>
+            ))}
+          </Tbl>
+        </div>
+      ) : null}
 
       {isPending ? <LoadingCard message="Loading payment records..." /> : null}
       {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
@@ -1105,7 +1145,7 @@ export function AdminPaymentsPage() {
           </FormGrid>
           <Field label="Notes"><Textarea onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} rows={3} value={form.notes} /></Field>
           <ModalFooter>
-            <Button disabled={!form.billingId || !form.amount || Number(form.amount) <= 0 || save.isPending} onClick={() => save.mutate()}>
+            <Button disabled={!form.billingId || !form.amount || Number(form.amount) <= 0 || (form.method === "GCash" && !form.receiptNumber.trim()) || save.isPending} onClick={() => save.mutate()}>
               <WalletCards className="mr-2 h-4 w-4" />Record Payment
             </Button>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
@@ -1147,7 +1187,7 @@ export function AdminViolationsPage() {
   const save = useMutation({
     mutationFn: async () => saveViolation(user!.id, { violationId: editId || undefined, vendorId: form.vendorId, stallId: form.stallId || undefined, category: form.category, description: form.description, violationDate: form.violationDate, penaltyAmount: Number(form.penaltyAmount), actionTaken: form.actionTaken, status: form.status }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.violations });
+      await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.violations }), queryClient.invalidateQueries({ queryKey: queryKeys.billings })]);
       toast.success(editId ? "Violation updated." : "Violation recorded.");
       setModal(null);
     },
@@ -1157,7 +1197,7 @@ export function AdminViolationsPage() {
   const remove = useMutation({
     mutationFn: async () => deleteViolation(user!.id, editId!),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.violations });
+      await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.violations }), queryClient.invalidateQueries({ queryKey: queryKeys.billings })]);
       toast.success("Violation deleted.");
       setModal(null);
     },
@@ -1321,6 +1361,17 @@ export function AdminReportsPage() {
               <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0" }}><span style={{ fontSize: "14px", color: "#374151" }}>Kiosks:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>—</span></div>
             </div>
           </div>
+
+          <Tbl head={["Reference", "Date", "Billing month", "Vendor", "Block", "Stall", "Amount", "Method", "External ref.", "Status"]}>
+            {data.rows.map((row) => (
+              <Tr key={`${row.payment_reference}-${row.billing_month}`}>
+                <Td>{row.payment_reference}</Td><Td>{row.payment_date}</Td><Td>{row.billing_month}</Td>
+                <Td>{row.vendor}</Td><Td>{row.block}</Td><Td>{row.stall}</Td><Td>{row.amount}</Td>
+                <Td>{row.method}</Td><Td>{row.external_reference}</Td><Td><StatusBadge status={row.verification_status} /></Td>
+              </Tr>
+            ))}
+          </Tbl>
+          {data.rows.length === 0 ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No payment records match these filters.</p> : null}
 
           <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
             <button onClick={exportCsv} style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 18px", fontSize: "13px", fontWeight: 600, cursor: "pointer", color: "#374151", display: "flex", alignItems: "center", gap: "6px" }} type="button">
@@ -1504,6 +1555,8 @@ export function AdminSettingsPage() {
   const { data, isPending, error } = useQuery({ queryKey: queryKeys.settings, queryFn: fetchSettings, enabled: isSupabaseConfigured });
   const [billing, setBilling] = useState({ billingDay: "5", penaltyAmount: "150", reminderDaysBefore: "3" });
   const [templates, setTemplates] = useState({ approval: "", rejection: "", overdue: "" });
+  const [paymentMethods, setPaymentMethods] = useState("Cash, GCash");
+  const [pickup, setPickup] = useState({ enabled: false, schedule: "", location: "", contact: "", instructions: "" });
   const [editDocId, setEditDocId] = useState<string | null>(null);
   const [docForm, setDocForm] = useState({ name: "", description: "", isRequired: true, hasExpiry: true, sortOrder: "0" });
 
@@ -1511,6 +1564,8 @@ export function AdminSettingsPage() {
     if (!data) return;
     setBilling({ billingDay: String(data.billingSettings.billingDay), penaltyAmount: String(data.billingSettings.penaltyAmount), reminderDaysBefore: String(data.billingSettings.reminderDaysBefore) });
     setTemplates(data.notificationTemplates);
+    setPaymentMethods(data.paymentMethods.join(", "));
+    setPickup(data.pickupInformation);
   }, [data]);
 
   const openDocEdit = (id: string) => {
@@ -1537,6 +1592,15 @@ export function AdminSettingsPage() {
   const saveTemplates = useMutation({
     mutationFn: async () => saveSystemSetting(user!.id, "notification_templates", templates),
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.settings }); toast.success("Notification templates saved."); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const saveOperations = useMutation({
+    mutationFn: async () => Promise.all([
+      saveSystemSetting(user!.id, "payment_methods", { methods: paymentMethods.split(",").map((item) => item.trim()).filter(Boolean) }),
+      saveSystemSetting(user!.id, "pickup_information", pickup),
+    ]),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.settings }); toast.success("Payment and pickup settings saved."); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -1594,6 +1658,26 @@ export function AdminSettingsPage() {
               </CardContent>
             </Card>
           </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Market, stall, payment, and pickup configuration</CardTitle>
+              <CardDescription>Blocks and stalls use the shared market inventory. Configure operational payment and pickup information here.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <a className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-primary hover:bg-muted" href="/admin/stalls">Manage market blocks, stall categories, numbers, rates, and assignments</a>
+              <Field label="Payment methods (comma separated)"><Input onChange={(e) => setPaymentMethods(e.target.value)} value={paymentMethods} /></Field>
+              <Field label="Pickup enabled">
+                <Select onChange={(e) => setPickup((current) => ({ ...current, enabled: e.target.value === "Yes" }))} value={pickup.enabled ? "Yes" : "No"}><option>Yes</option><option>No</option></Select>
+              </Field>
+              <FormGrid>
+                <Field label="Pickup schedule"><Input onChange={(e) => setPickup((current) => ({ ...current, schedule: e.target.value }))} value={pickup.schedule} /></Field>
+                <Field label="Pickup location"><Input onChange={(e) => setPickup((current) => ({ ...current, location: e.target.value }))} value={pickup.location} /></Field>
+                <Field label="Pickup contact"><Input onChange={(e) => setPickup((current) => ({ ...current, contact: e.target.value }))} value={pickup.contact} /></Field>
+              </FormGrid>
+              <Field label="Pickup instructions"><Textarea onChange={(e) => setPickup((current) => ({ ...current, instructions: e.target.value }))} rows={3} value={pickup.instructions} /></Field>
+              <Button disabled={saveOperations.isPending} onClick={() => saveOperations.mutate()}><Save className="mr-2 h-4 w-4" />Save operational settings</Button>
+            </CardContent>
+          </Card>
         </div>
       ) : null}
 

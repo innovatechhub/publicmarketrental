@@ -14,7 +14,6 @@ import {
 import { Doughnut, Line } from "react-chartjs-2";
 import {
   BellRing,
-  Check,
   CreditCard,
   FilePlus2,
   PencilLine,
@@ -99,6 +98,7 @@ const paymentSchema = z.object({
     .refine((value) => Number(value) > 0, "Enter a payment amount."),
   method: z.string().min(2, "Payment method is required."),
   reference: z.string().optional(),
+  advanceMonths: z.string().min(1),
 });
 
 const supportRequestSchema = z.object({
@@ -599,9 +599,10 @@ export function VendorApplicationsPage() {
 }
 
 export function VendorBillingPage() {
-  const { billings, recordPayment } = useVendorWorkspace();
+  const { billings, paymentMethods, recordPayment } = useVendorWorkspace();
   const [selectedBillingId, setSelectedBillingId] = useState<string | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [paymentProof, setPaymentProof] = useState<File | null>(null);
 
   const orderedBillings = useMemo(
     () => [...billings].sort((left, right) => new Date(right.dueDate).getTime() - new Date(left.dueDate).getTime()),
@@ -621,12 +622,13 @@ export function VendorBillingPage() {
 
   const form = useForm<PaymentValues>({
     resolver: zodResolver(paymentSchema),
-    defaultValues: { amount: remainingBalance ? String(remainingBalance) : "", method: "Cash", reference: "" },
+    defaultValues: { amount: remainingBalance ? String(remainingBalance) : "", method: paymentMethods[0] ?? "Cash", reference: "", advanceMonths: "1" },
   });
 
   useEffect(() => {
-    form.reset({ amount: remainingBalance ? String(remainingBalance) : "", method: "Cash", reference: "" });
-  }, [form, remainingBalance, selectedBillingId]);
+    form.reset({ amount: remainingBalance ? String(remainingBalance) : "", method: paymentMethods[0] ?? "Cash", reference: "", advanceMonths: "1" });
+    setPaymentProof(null);
+  }, [form, paymentMethods, remainingBalance, selectedBillingId]);
 
   const openPay = (id: string) => {
     setSelectedBillingId(id);
@@ -636,13 +638,22 @@ export function VendorBillingPage() {
   const onSubmit = form.handleSubmit(async (values) => {
     if (!selectedBilling) return;
     const amount = Number(values.amount);
-    if (amount > remainingBalance) {
+    const advanceMonths = Number(values.advanceMonths);
+    if (advanceMonths === 1 && amount > remainingBalance) {
       form.setError("amount", { type: "manual", message: `Payment cannot exceed ${formatCurrency(remainingBalance)}.` });
       return;
     }
-    await recordPayment({ billingId: selectedBilling.id, amount, method: values.method, reference: values.reference });
+    if (values.method === "GCash" && !values.reference?.trim()) {
+      form.setError("reference", { type: "manual", message: "GCash reference number is required." });
+      return;
+    }
+    if (values.method === "GCash" && !paymentProof) {
+      toast.error("Upload proof of payment for GCash.");
+      return;
+    }
+    await recordPayment({ billingId: selectedBilling.id, amount, method: values.method, reference: values.reference, proof: paymentProof, advanceMonths });
     setShowPayModal(false);
-    toast.success("Payment recorded in the billing ledger.");
+    toast.success("Payment submitted for finance verification.");
   });
 
   return (
@@ -724,17 +735,36 @@ export function VendorBillingPage() {
           </div>
           <form className="space-y-4" onSubmit={onSubmit}>
             <FieldGroup label="Payment amount">
-              <Input min="0" step="0.01" type="number" {...form.register("amount")} />
+              <Input disabled={Number(form.watch("advanceMonths")) > 1} min="0" step="0.01" type="number" {...form.register("amount")} />
               <FieldError message={form.formState.errors.amount?.message} />
+              {Number(form.watch("advanceMonths")) > 1 ? <p className="text-xs text-muted-foreground">Full outstanding balances for the selected months will be calculated automatically.</p> : null}
+            </FieldGroup>
+            <FieldGroup label="Months to cover">
+              <Input max="12" min="1" type="number" {...form.register("advanceMonths")} />
+              <p className="text-xs text-muted-foreground">Choose 2–12 to create and pay future monthly bills in advance.</p>
             </FieldGroup>
             <FieldGroup label="Payment method">
               <Select {...form.register("method")}>
-                <option>Cash</option><option>GCash</option><option>Bank Transfer</option>
+                {paymentMethods.map((method) => <option key={method}>{method}</option>)}
               </Select>
               <FieldError message={form.formState.errors.method?.message} />
             </FieldGroup>
             <FieldGroup label="Reference number">
-              <Input placeholder="Optional reference or OR number" {...form.register("reference")} />
+              <Input placeholder={form.watch("method") === "GCash" ? "Required GCash reference" : "Optional reference or OR number"} {...form.register("reference")} />
+              <FieldError message={form.formState.errors.reference?.message} />
+            </FieldGroup>
+            <FieldGroup label={`Proof of payment${form.watch("method") === "GCash" ? " *" : ""}`}>
+              <Input accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                if (file && file.size > 10 * 1024 * 1024) {
+                  toast.error("Proof of payment must be 10 MB or smaller.");
+                  event.target.value = "";
+                  setPaymentProof(null);
+                  return;
+                }
+                setPaymentProof(file);
+              }} type="file" />
+              <p className="text-xs text-muted-foreground">PDF, JPG, PNG, or WebP; maximum 10 MB.</p>
             </FieldGroup>
             <div className="flex flex-wrap gap-3 border-t border-border pt-4">
               <Button disabled={form.formState.isSubmitting || remainingBalance <= 0} type="submit">
@@ -751,6 +781,7 @@ export function VendorBillingPage() {
 
 export function VendorNotificationsPage() {
   const { notifications, deleteNotification, markAllNotificationsRead, toggleNotificationRead } = useVendorWorkspace();
+  const [openedNotificationId, setOpenedNotificationId] = useState<string | null>(null);
 
   const orderedNotifications = useMemo(
     () => [...notifications].sort((left, right) => Number(left.read) - Number(right.read)),
@@ -796,7 +827,14 @@ export function VendorNotificationsPage() {
                 </thead>
                 <tbody className="divide-y divide-border/60">
                   {orderedNotifications.map((item) => (
-                    <tr className={`transition hover:bg-muted/30 ${!item.read ? "bg-warning/5" : ""}`} key={item.id}>
+                    <tr
+                      className={`cursor-pointer transition hover:bg-muted/30 ${!item.read ? "bg-warning/5" : ""}`}
+                      key={item.id}
+                      onClick={() => {
+                        setOpenedNotificationId(item.id);
+                        if (!item.read) void toggleNotificationRead(item.id);
+                      }}
+                    >
                       <td className="px-6 py-4 font-medium text-foreground">{item.title}</td>
                       <td className="max-w-[260px] px-6 py-4 text-muted-foreground">
                         <p className="truncate">{item.detail}</p>
@@ -808,10 +846,7 @@ export function VendorNotificationsPage() {
                       <td className="px-6 py-4 text-xs uppercase tracking-[0.14em] text-primary">{item.timestamp}</td>
                       <td className="px-6 py-4">
                         <div className="flex gap-2">
-                          <Button onClick={() => toggleNotificationRead(item.id)} size="sm" variant="outline">
-                            <Check className="mr-2 h-3 w-3" />{item.read ? "Unread" : "Read"}
-                          </Button>
-                          <Button onClick={() => deleteNotification(item.id)} size="sm" variant="destructive">
+                          <Button onClick={(event) => { event.stopPropagation(); void deleteNotification(item.id); }} size="sm" variant="destructive">
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
@@ -824,6 +859,15 @@ export function VendorNotificationsPage() {
           )}
         </CardContent>
       </Card>
+      {openedNotificationId ? (() => {
+        const opened = notifications.find((item) => item.id === openedNotificationId);
+        return opened ? (
+          <VendorModal onClose={() => setOpenedNotificationId(null)} title={opened.title}>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{opened.detail}</p>
+            <div className="flex justify-end"><Button onClick={() => setOpenedNotificationId(null)}>Close</Button></div>
+          </VendorModal>
+        ) : null;
+      })() : null}
     </div>
   );
 }

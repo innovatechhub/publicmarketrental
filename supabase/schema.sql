@@ -138,6 +138,7 @@ create table public.billings (
   lease_id uuid references public.leases(id) on delete cascade,
   vendor_id uuid references public.vendors(id) on delete cascade,
   billing_month date not null,
+  base_amount numeric(12,2) not null default 0,
   amount_due numeric(12,2) not null default 0,
   amount_paid numeric(12,2) not null default 0,
   due_date date not null,
@@ -156,6 +157,13 @@ create table public.payments (
   payment_date date not null,
   payment_method text not null,
   receipt_number text,
+  verification_status text not null default 'pending' check (verification_status in ('pending', 'verified', 'rejected', 'voided')),
+  proof_path text,
+  payment_group_id uuid not null default gen_random_uuid(),
+  internal_reference text not null unique default ('PAY-' || to_char(timezone('utc', now()), 'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))),
+  verified_by uuid references public.profiles(id) on delete set null,
+  verified_at timestamptz,
+  rejection_reason text,
   submitted_by_vendor boolean not null default false,
   recorded_by uuid references public.profiles(id) on delete set null,
   notes text,
@@ -181,6 +189,7 @@ create table public.violations (
   id uuid primary key default gen_random_uuid(),
   vendor_id uuid not null references public.vendors(id) on delete cascade,
   stall_id uuid references public.stalls(id) on delete set null,
+  billing_id uuid references public.billings(id) on delete set null,
   category text not null,
   description text not null,
   violation_date date not null,
@@ -199,6 +208,7 @@ create table public.notifications (
   message text not null,
   type text not null,
   is_read boolean not null default false,
+  read_at timestamptz,
   link text,
   created_at timestamptz not null default timezone('utc', now())
 );
@@ -226,6 +236,10 @@ create index idx_stalls_section_status on public.stalls(section_id, status);
 create index idx_applications_vendor_status on public.applications(vendor_id, status);
 create index idx_documents_application_status on public.application_documents(application_id, verification_status);
 create index idx_payments_vendor_date on public.payments(vendor_id, payment_date desc);
+create unique index uq_billings_vendor_month on public.billings(vendor_id, billing_month) where vendor_id is not null;
+create index idx_payments_verification_status on public.payments(verification_status, payment_date desc);
+create index idx_payments_group_id on public.payments(payment_group_id);
+create index idx_violations_billing_id on public.violations(billing_id);
 create index idx_notifications_user_read on public.notifications(user_id, is_read);
 create index idx_support_requests_vendor_status on public.stall_support_requests(vendor_id, status);
 
@@ -261,9 +275,10 @@ security definer
 set search_path = public
 as $$
 begin
-  new.amount_due = coalesce(new.amount_due, 0);
-  new.amount_paid = coalesce(new.amount_paid, 0);
-  new.penalties = coalesce(new.penalties, 0);
+  new.base_amount = greatest(coalesce(new.base_amount, 0), 0);
+  new.penalties = greatest(coalesce(new.penalties, 0), 0);
+  new.amount_due = new.base_amount + new.penalties;
+  new.amount_paid = greatest(coalesce(new.amount_paid, 0), 0);
   new.status = case
     when new.amount_paid >= new.amount_due then 'paid'::public.billing_status
     when new.amount_paid > 0 then 'partial'::public.billing_status
@@ -294,6 +309,7 @@ begin
     select sum(amount)
     from public.payments
     where billing_id = target_billing_id
+      and verification_status = 'verified'
   ), 0);
 
   update public.billings
@@ -600,6 +616,19 @@ security definer
 set search_path = public
 as $$
 begin
+  if new.amount <= 0 then
+    raise exception 'Payment amount must be greater than zero.';
+  end if;
+  if not exists (select 1 from public.billings b where b.id = new.billing_id and b.vendor_id = new.vendor_id) then
+    raise exception 'Payment billing record does not belong to the selected vendor.';
+  end if;
+  if new.amount > (select greatest(b.amount_due - b.amount_paid, 0) from public.billings b where b.id = new.billing_id) then
+    raise exception 'Payment amount cannot exceed the current billing balance.';
+  end if;
+  if lower(new.payment_method) = 'gcash' and nullif(trim(new.receipt_number), '') is null then
+    raise exception 'GCash payments require a reference number.';
+  end if;
+
   if auth.uid() is null or auth.role() = 'service_role' or public.is_back_office() then
     return new;
   end if;
@@ -609,6 +638,12 @@ begin
   end if;
   if new.submitted_by_vendor is not true or new.recorded_by is not null then
     raise exception 'Vendor payment entries must be marked as vendor-submitted only.';
+  end if;
+  if new.verification_status <> 'pending' then
+    raise exception 'Vendor payments must be submitted for verification.';
+  end if;
+  if lower(new.payment_method) = 'gcash' and nullif(trim(new.proof_path), '') is null then
+    raise exception 'Vendor GCash payments require proof of payment.';
   end if;
 
   return new;
@@ -929,6 +964,9 @@ create policy "system_settings_manage_admin" on public.system_settings
 for all using (public.current_user_role() in ('super_admin', 'admin'))
 with check (public.current_user_role() in ('super_admin', 'admin'));
 
+create policy "system_settings_read_authenticated" on public.system_settings
+for select to authenticated using (true);
+
 insert into public.market_sections (code, name, description, sort_order)
 values
   ('dry_goods', 'Dry Goods', 'General merchandise, clothing, and non-perishable goods', 1),
@@ -945,3 +983,9 @@ values
   ('dti_registration', 'DTI Registration', 'Department of Trade and Industry registration', true, true, 4),
   ('business_permit', 'Business Permit', 'Local government business permit', true, true, 5)
 on conflict (code) do nothing;
+
+insert into public.system_settings (key, value)
+values
+  ('payment_methods', '{"methods":["Cash","GCash"]}'::jsonb),
+  ('pickup_information', '{"enabled":false,"schedule":"","location":"","contact":"","instructions":""}'::jsonb)
+on conflict (key) do nothing;

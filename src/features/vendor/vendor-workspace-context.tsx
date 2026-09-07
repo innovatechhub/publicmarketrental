@@ -99,6 +99,7 @@ interface VendorWorkspaceState {
   billings: VendorBillingRecord[];
   notifications: VendorNotificationRecord[];
   stall: VendorStallInfo;
+  paymentMethods: string[];
 }
 
 interface VendorProfileInput {
@@ -128,6 +129,8 @@ interface VendorPaymentInput {
   amount: number;
   method: string;
   reference?: string;
+  proof?: File | null;
+  advanceMonths?: number;
 }
 
 interface VendorSupportRequestInput {
@@ -170,6 +173,7 @@ function emptyState(): VendorWorkspaceState {
       renewalStatus: "Not Requested",
       supportRequests: [],
     },
+    paymentMethods: ["Cash", "GCash"],
   };
 }
 

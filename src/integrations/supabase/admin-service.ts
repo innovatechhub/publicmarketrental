@@ -65,6 +65,7 @@ export interface AdminBillingRecord {
   stall: string;
   billingMonth: string;
   billingMonthIso: string;
+  baseAmount: number;
   amountDue: number;
   dueDate: string;
   dueDateIso: string;
@@ -85,6 +86,11 @@ export interface AdminPaymentRecord {
   paymentDateIso: string;
   method: string;
   receipt: string;
+  internalReference: string;
+  verificationStatus: string;
+  proofPath: string | null;
+  proofUrl: string | null;
+  paymentGroupId: string;
   recordedBy: string;
   notes: string;
 }
@@ -150,6 +156,14 @@ export interface AdminSettingsSnapshot {
     rejection: string;
     overdue: string;
   };
+  paymentMethods: string[];
+  pickupInformation: {
+    enabled: boolean;
+    schedule: string;
+    location: string;
+    contact: string;
+    instructions: string;
+  };
 }
 
 export interface AdminDashboardSnapshot {
@@ -182,9 +196,11 @@ export interface AdminReportsSnapshot {
 }
 
 export interface ReportFiltersInput {
-  dateFrom: string;
-  dateTo: string;
+  month: string;
+  year: string;
   section: string;
+  stallNumber: string;
+  vendorName: string;
   paymentStatus: string;
 }
 
@@ -351,7 +367,7 @@ export async function fetchAdminDashboardSnapshot(): Promise<AdminDashboardSnaps
       db.from("applications").select("id, vendor_id, preferred_stall_id, status, updated_at, application_type"),
       db.from("application_documents").select("id, application_id, verification_status"),
       db.from("billings").select("id, amount_due, amount_paid, status, due_date"),
-      db.from("payments").select("id, amount, payment_date"),
+      db.from("payments").select("id, amount, payment_date").eq("verification_status", "verified"),
       db.from("activity_logs").select("id, action, entity_name, entity_id, metadata, created_at").order("created_at", { ascending: false }).limit(5),
     ]);
 
@@ -503,7 +519,7 @@ export async function fetchVendorLeaseRates(): Promise<Record<string, number | n
   const core = await loadCoreMaps();
   const out: Record<string, number | null> = {};
   for (const vendor of core.vendors) {
-    const stall = core.stalls.find((s) => s.status === "occupied");
+    const stall = core.stalls.find((s) => s.status === "occupied" && s.vendor_id === vendor.id);
     out[vendor.id] = stall ? Number(stall.monthly_rate ?? null) : null;
   }
   return out;
@@ -535,7 +551,7 @@ export async function fetchVendorRegistry(): Promise<{
   const core = await loadCoreMaps();
   const [billingsResult, paymentsResult, violationsResult] = await Promise.all([
     db.from("billings").select("id, vendor_id, amount_due, amount_paid"),
-    db.from("payments").select("id, vendor_id, payment_date").order("payment_date", { ascending: false }),
+    db.from("payments").select("id, vendor_id, payment_date").eq("verification_status", "verified").order("payment_date", { ascending: false }),
     db.from("violations").select("stall_id, vendor_id").order("created_at", { ascending: false }),
   ]);
 
@@ -1152,22 +1168,14 @@ export async function fetchBillings(): Promise<{
   const core = await loadCoreMaps();
   const { data, error } = await db
     .from("billings")
-    .select("id, vendor_id, billing_month, amount_due, due_date, amount_paid, status, penalties, notes")
+    .select("id, vendor_id, billing_month, base_amount, amount_due, due_date, amount_paid, status, penalties, notes")
     .order("billing_month", { ascending: false });
 
   if (error) throw error;
 
-  const { data: violationsForBillings } = await db
-    .from("violations")
-    .select("stall_id, vendor_id")
-    .order("created_at", { ascending: false });
-
-  const stallByVendorId = new Map<string, string>();
-  for (const v of violationsForBillings ?? []) {
-    if (v.stall_id && v.vendor_id && !stallByVendorId.has(v.vendor_id)) {
-      stallByVendorId.set(v.vendor_id, v.stall_id);
-    }
-  }
+  const stallByVendorId = new Map(
+    core.stalls.filter((stall) => stall.vendor_id).map((stall) => [stall.vendor_id!, stall.id]),
+  );
 
   const rows = (data ?? []).map((item) => {
     const vendor = item.vendor_id ? core.vendorById.get(item.vendor_id) : null;
@@ -1179,10 +1187,13 @@ export async function fetchBillings(): Promise<{
       id: item.id,
       vendorId: item.vendor_id ?? "",
       vendorProfileId: vendor?.profile_id ?? "",
-      vendor: vendor?.business_name ?? profile?.full_name ?? "Unknown vendor",
+      vendor: profile?.full_name
+        ? `${profile.full_name}${vendor?.business_name ? ` (${vendor.business_name})` : ""}`
+        : vendor?.business_name ?? "Unknown vendor",
       stall,
       billingMonth: formatDate(item.billing_month),
       billingMonthIso: item.billing_month,
+      baseAmount: Number(item.base_amount ?? 0),
       amountDue: Number(item.amount_due ?? 0),
       dueDate: formatDate(item.due_date),
       dueDateIso: item.due_date,
@@ -1210,9 +1221,7 @@ export async function createBilling(
   input: {
     vendorId: string;
     billingMonth: string;
-    amountDue: number;
     dueDate: string;
-    penalties: number;
     notes: string;
   },
 ) {
@@ -1222,9 +1231,8 @@ export async function createBilling(
     .insert({
       vendor_id: input.vendorId,
       billing_month: input.billingMonth,
-      amount_due: input.amountDue,
+      base_amount: (await fetchVendorLeaseRates())[input.vendorId] ?? 0,
       due_date: input.dueDate,
-      penalties: input.penalties,
       notes: input.notes,
       status: "unpaid",
     })
@@ -1240,9 +1248,7 @@ export async function updateBilling(
   input: {
     billingId: string;
     billingMonth: string;
-    amountDue: number;
     dueDate: string;
-    penalties: number;
     notes: string;
   },
 ) {
@@ -1251,9 +1257,7 @@ export async function updateBilling(
     .from("billings")
     .update({
       billing_month: input.billingMonth,
-      amount_due: input.amountDue,
       due_date: input.dueDate,
-      penalties: input.penalties,
       notes: input.notes,
     })
     .eq("id", input.billingId);
@@ -1270,12 +1274,12 @@ export async function fetchPayments(): Promise<{
   const core = await loadCoreMaps();
   const { data, error } = await db
     .from("payments")
-    .select("id, billing_id, vendor_id, amount, payment_date, payment_method, receipt_number, recorded_by, notes")
+    .select("id, billing_id, vendor_id, amount, payment_date, payment_method, receipt_number, internal_reference, verification_status, proof_path, payment_group_id, recorded_by, notes")
     .order("payment_date", { ascending: false });
 
   if (error) throw error;
 
-  const rows = (data ?? []).map((item) => {
+  const rows = await Promise.all((data ?? []).map(async (item) => {
     const vendor = core.vendorById.get(item.vendor_id);
     const profile = vendor ? core.profileById.get(vendor.profile_id) : null;
     const recorder = item.recorded_by ? core.profileById.get(item.recorded_by) : null;
@@ -1284,20 +1288,29 @@ export async function fetchPayments(): Promise<{
       billingId: item.billing_id,
       vendorId: item.vendor_id,
       vendorProfileId: vendor?.profile_id ?? "",
-      vendor: vendor?.business_name ?? profile?.full_name ?? "Unknown vendor",
+      vendor: profile?.full_name
+        ? `${profile.full_name}${vendor?.business_name ? ` (${vendor.business_name})` : ""}`
+        : vendor?.business_name ?? "Unknown vendor",
       amount: Number(item.amount ?? 0),
       paymentDate: formatDate(item.payment_date),
       paymentDateIso: item.payment_date,
       method: item.payment_method,
       receipt: item.receipt_number ?? "-",
+      internalReference: item.internal_reference,
+      verificationStatus: titleizeStatus(item.verification_status),
+      proofPath: item.proof_path ?? null,
+      proofUrl: item.proof_path
+        ? (await db.storage.from("payment-proofs").createSignedUrl(item.proof_path, 300)).data?.signedUrl ?? null
+        : null,
+      paymentGroupId: item.payment_group_id,
       recordedBy: recorder?.full_name ?? "Vendor Portal",
       notes: item.notes ?? "",
     };
-  });
+  }));
 
   return {
     summary: [
-      ["Verified entries", `${rows.length}`],
+      ["Verified entries", `${rows.filter((item) => item.verificationStatus === "Verified").length}`],
       ["Cash", `${rows.filter((item) => item.method.toLowerCase() === "cash").length}`],
       ["Digital", `${rows.filter((item) => item.method.toLowerCase() !== "cash").length}`],
     ],
@@ -1339,6 +1352,9 @@ export async function createPayment(
       recorded_by: actorId,
       notes: input.notes,
       submitted_by_vendor: false,
+      verification_status: "verified",
+      verified_by: actorId,
+      verified_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -1349,6 +1365,26 @@ export async function createPayment(
     billingId: input.billingId,
     amount: input.amount,
   });
+}
+
+export async function reviewPayment(
+  actorId: string,
+  paymentGroupId: string,
+  status: "verified" | "rejected",
+  rejectionReason = "",
+) {
+  const db = requireSupabase();
+  const { error } = await db
+    .from("payments")
+    .update({
+      verification_status: status,
+      verified_by: status === "verified" ? actorId : null,
+      verified_at: status === "verified" ? new Date().toISOString() : null,
+      rejection_reason: status === "rejected" ? rejectionReason || "Rejected by finance" : null,
+    })
+    .eq("payment_group_id", paymentGroupId);
+  if (error) throw error;
+  await logActivity(actorId, status, "payment_group", paymentGroupId, { rejectionReason });
 }
 
 export async function fetchViolations(): Promise<{
@@ -1578,6 +1614,8 @@ export async function fetchSettings(): Promise<AdminSettingsSnapshot> {
   const settingsMap = new Map((settingsResult.data ?? []).map((item) => [item.key, item.value as Record<string, unknown>]));
   const billingSettings = settingsMap.get("billing_schedule") ?? {};
   const notificationTemplates = settingsMap.get("notification_templates") ?? {};
+  const paymentSettings = settingsMap.get("payment_methods") ?? {};
+  const pickupSettings = settingsMap.get("pickup_information") ?? {};
 
   return {
     documentRequirements: (requirementsResult.data ?? []).map((item) => ({
@@ -1598,6 +1636,16 @@ export async function fetchSettings(): Promise<AdminSettingsSnapshot> {
       approval: String(notificationTemplates.approval ?? "Your application has been approved."),
       rejection: String(notificationTemplates.rejection ?? "Your application requires attention."),
       overdue: String(notificationTemplates.overdue ?? "Your billing account has passed the due date."),
+    },
+    paymentMethods: Array.isArray(paymentSettings.methods)
+      ? paymentSettings.methods.map(String)
+      : ["Cash", "GCash"],
+    pickupInformation: {
+      enabled: Boolean(pickupSettings.enabled ?? false),
+      schedule: String(pickupSettings.schedule ?? ""),
+      location: String(pickupSettings.location ?? ""),
+      contact: String(pickupSettings.contact ?? ""),
+      instructions: String(pickupSettings.instructions ?? ""),
     },
   };
 }
@@ -1644,49 +1692,57 @@ export async function saveSystemSetting(
 }
 
 export async function fetchReports(filters: ReportFiltersInput): Promise<AdminReportsSnapshot> {
-  const [billings, stalls] = await Promise.all([fetchBillings(), fetchStalls()]);
-
-  const filteredBillings = billings.rows.filter((item) => {
-    const inStatus = filters.paymentStatus === "Any status" || item.status === filters.paymentStatus;
-    return inStatus;
+  const [payments, billings, stalls] = await Promise.all([fetchPayments(), fetchBillings(), fetchStalls()]);
+  const billingById = new Map(billings.rows.map((item) => [item.id, item]));
+  const stallByVendor = new Map(stalls.rows.filter((item) => item.currentVendorId).map((item) => [item.currentVendorId!, item]));
+  const nameNeedle = filters.vendorName.trim().toLowerCase();
+  const filteredPayments = payments.rows.filter((item) => {
+    const date = new Date(`${item.paymentDateIso}T00:00:00`);
+    const stall = stallByVendor.get(item.vendorId);
+    return (filters.month === "All months" || date.getMonth() + 1 === Number(filters.month))
+      && (filters.year === "All years" || date.getFullYear() === Number(filters.year))
+      && (filters.section === "All blocks" || stall?.section === filters.section)
+      && (!filters.stallNumber.trim() || stall?.stallNumber.toLowerCase().includes(filters.stallNumber.trim().toLowerCase()))
+      && (!nameNeedle || item.vendor.toLowerCase().includes(nameNeedle))
+      && (filters.paymentStatus === "Any status" || item.verificationStatus === filters.paymentStatus);
   });
-
-  const filteredStalls = stalls.rows.filter((item) => {
-    return filters.section === "All sections" || item.section === filters.section;
-  });
+  const verifiedTotal = filteredPayments
+    .filter((item) => item.verificationStatus === "Verified")
+    .reduce((sum, item) => sum + item.amount, 0);
 
   return {
     summary: [
       {
-        label: "Occupancy Report",
-        value: `${filteredStalls.filter((item) => item.status === "Occupied").length}/${filteredStalls.length || 0}`,
+        label: "Verified collections",
+        value: formatCurrency(verifiedTotal),
+        note: `${filteredPayments.filter((item) => item.verificationStatus === "Verified").length} verified entries`,
+      },
+      {
+        label: "Pending review",
+        value: `${filteredPayments.filter((item) => item.verificationStatus === "Pending").length}`,
+        note: "Vendor submissions awaiting finance review",
+      },
+      {
+        label: "Payment records",
+        value: `${filteredPayments.length}`,
         note: `Filtered by ${filters.section}`,
       },
-      {
-        label: "Overdue Balances",
-        value: formatCurrency(
-          filteredBillings
-            .filter((item) => item.status === "Overdue")
-            .reduce((sum, item) => sum + Math.max(item.amountDue - item.amountPaid, 0), 0),
-        ),
-        note: `Filtered by ${filters.paymentStatus}`,
-      },
     ],
-    rows: [
-      {
-        report: "Stall Occupancy",
-        filter_scope: filters.section,
-        generated_at: formatDateTime(new Date().toISOString()),
-        coverage: `${filteredStalls.length} stalls`,
-        status: "Ready",
-      },
-      {
-        report: "Payment Collection",
-        filter_scope: filters.paymentStatus,
-        generated_at: formatDateTime(new Date().toISOString()),
-        coverage: `${filteredBillings.length} billing rows`,
-        status: "Ready",
-      },
-    ],
+    rows: filteredPayments.map((item) => {
+      const billing = billingById.get(item.billingId);
+      const stall = stallByVendor.get(item.vendorId);
+      return {
+        payment_reference: item.internalReference,
+        payment_date: item.paymentDate,
+        billing_month: billing?.billingMonth ?? "-",
+        vendor: item.vendor,
+        block: stall?.section ?? "-",
+        stall: stall?.stallNumber ?? "-",
+        amount: formatCurrency(item.amount),
+        method: item.method,
+        external_reference: item.receipt,
+        verification_status: item.verificationStatus,
+      };
+    }),
   };
 }

@@ -91,6 +91,7 @@ export interface VendorWorkspaceSnapshot {
   billings: VendorBillingRecord[];
   notifications: VendorNotificationRecord[];
   stall: VendorStallInfo;
+  paymentMethods: string[];
 }
 
 function requireSupabase() {
@@ -275,7 +276,7 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
   const db = requireSupabase();
   const vendor = await getVendor(profileId);
 
-  const [applicationsResult, notificationsResult, supportResult, leasesResult] = await Promise.all([
+  const [applicationsResult, notificationsResult, supportResult, leasesResult, paymentSettingsResult] = await Promise.all([
     db
       .from("applications")
       .select("id, preferred_stall_id, business_type, preferred_section, preferred_stall_type, status, submitted_at, updated_at, rejection_reason, remarks")
@@ -296,12 +297,14 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
       .select("id, vendor_id, stall_id, start_date, end_date, monthly_rate, status, renewal_status, created_at")
       .eq("vendor_id", vendor.id)
       .order("created_at", { ascending: false }),
+    db.from("system_settings").select("value").eq("key", "payment_methods").maybeSingle(),
   ]);
 
   if (applicationsResult.error) throw applicationsResult.error;
   if (notificationsResult.error) throw notificationsResult.error;
   if (supportResult.error) throw supportResult.error;
   if (leasesResult.error) throw leasesResult.error;
+  if (paymentSettingsResult.error) throw paymentSettingsResult.error;
 
   const applications = applicationsResult.data ?? [];
   const leases = leasesResult.data ?? [];
@@ -330,7 +333,8 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
     db
       .from("payments")
       .select("billing_id, payment_date, payment_method, receipt_number")
-      .eq("vendor_id", vendor.id),
+      .eq("vendor_id", vendor.id)
+      .eq("verification_status", "verified"),
     db
       .from("billings")
       .select("id, lease_id, billing_month, amount_due, amount_paid, due_date, status")
@@ -504,6 +508,9 @@ export async function fetchVendorWorkspace(profileId: string): Promise<VendorWor
     documents: mappedDocuments,
     billings: mappedBillings,
     notifications: mappedNotifications,
+    paymentMethods: Array.isArray((paymentSettingsResult.data?.value as { methods?: unknown[] } | null)?.methods)
+      ? ((paymentSettingsResult.data?.value as { methods: unknown[] }).methods.map(String))
+      : ["Cash", "GCash"],
     stall: {
       stall: currentStall ? `${currentStall.sectionName} ${currentStall.stall_number}` : "No stall assigned",
       section: currentStall?.sectionName ?? "-",
@@ -742,28 +749,60 @@ export async function deleteVendorDocument(documentId: string) {
 
 export async function recordVendorPayment(
   profileId: string,
-  input: { billingId: string; amount: number; method: string; reference?: string },
+  input: { billingId: string; amount: number; method: string; reference?: string; proof?: File | null; advanceMonths?: number },
 ) {
   const db = requireSupabase();
   const vendor = await getVendor(profileId);
-  const { error } = await db.from("payments").insert({
-    billing_id: input.billingId,
+  const advanceMonths = Math.max(1, Math.min(input.advanceMonths ?? 1, 12));
+  const isGcash = input.method.toLowerCase() === "gcash";
+  if (isGcash && !input.reference?.trim()) throw new Error("GCash reference number is required.");
+  if (isGcash && !input.proof) throw new Error("Proof of payment is required for GCash.");
+
+  const groupId = crypto.randomUUID();
+  let proofPath: string | null = null;
+  if (input.proof) {
+    const extension = input.proof.name.split(".").pop()?.toLowerCase() || "bin";
+    proofPath = `${profileId}/${groupId}/proof.${extension}`;
+    const { error: uploadError } = await db.storage
+      .from("payment-proofs")
+      .upload(proofPath, input.proof, { contentType: input.proof.type, upsert: false });
+    if (uploadError) throw new Error(uploadError.message);
+  }
+
+  let allocations: Array<{ billing_id: string; remaining: number }> = [{ billing_id: input.billingId, remaining: input.amount }];
+  if (advanceMonths > 1) {
+    const { data, error: prepareError } = await db.rpc("prepare_vendor_advance_billings", {
+      start_billing_id: input.billingId,
+      month_count: advanceMonths,
+    });
+    if (prepareError) throw new Error(prepareError.message);
+    allocations = ((data ?? []) as Array<{ billing_id: string; remaining: number }>).filter((item) => Number(item.remaining) > 0);
+  }
+
+  const { error } = await db.from("payments").insert(allocations.map((allocation) => ({
+    billing_id: allocation.billing_id,
     vendor_id: vendor.id,
-    amount: input.amount,
+    amount: advanceMonths > 1 ? Number(allocation.remaining) : input.amount,
     payment_date: new Date().toISOString().slice(0, 10),
     payment_method: input.method,
-    receipt_number: input.reference ?? null,
+    receipt_number: input.reference?.trim() || null,
+    proof_path: proofPath,
+    payment_group_id: groupId,
+    verification_status: "pending",
     submitted_by_vendor: true,
-    notes: "Submitted from vendor portal",
-  });
+    notes: advanceMonths > 1 ? `Vendor advance payment covering ${advanceMonths} months` : "Submitted from vendor portal",
+  })));
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (proofPath) await db.storage.from("payment-proofs").remove([proofPath]);
+    throw new Error(error.message);
+  }
 
   await createNotification(
     profileId,
-    "Payment logged",
-    "Your payment entry has been recorded in the billing ledger.",
-    "paid",
+    "Payment submitted",
+    "Your payment is awaiting verification by the finance team.",
+    "pending",
     "/vendor/billing",
   );
 }
