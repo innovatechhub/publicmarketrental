@@ -82,6 +82,7 @@ create table public.stalls (
   monthly_rate numeric(12,2) not null default 0,
   status public.stall_status not null default 'available',
   notes text,
+  vendor_id uuid references public.vendors(id) on delete set null,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   unique (section_id, stall_number)

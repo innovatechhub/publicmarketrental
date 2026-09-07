@@ -1,5 +1,39 @@
 -- Billing, penalties, payment verification, advance payments, proof uploads, and read receipts.
 
+-- Keep this migration self-contained for databases where the June vendor-link
+-- migration was not applied before this one.
+alter table public.billings
+  add column if not exists vendor_id uuid references public.vendors(id) on delete cascade;
+
+alter table public.stalls
+  add column if not exists vendor_id uuid references public.vendors(id) on delete set null;
+
+create index if not exists idx_billings_vendor_id on public.billings(vendor_id);
+create index if not exists idx_stalls_vendor_id on public.stalls(vendor_id);
+
+-- Backfill direct vendor links from leases when that table is available.
+do $$
+begin
+  if to_regclass('public.leases') is not null then
+    execute $sql$
+      update public.billings b
+      set vendor_id = l.vendor_id
+      from public.leases l
+      where b.lease_id = l.id and b.vendor_id is null
+    $sql$;
+
+    execute $sql$
+      update public.stalls s
+      set vendor_id = l.vendor_id
+      from public.leases l
+      where s.id = l.stall_id
+        and l.status = 'active'
+        and s.vendor_id is null
+    $sql$;
+  end if;
+end;
+$$;
+
 alter table public.billings
   add column if not exists base_amount numeric(12,2);
 
@@ -228,6 +262,7 @@ begin
 end;
 $$;
 
+drop trigger if exists guard_payment_verification_before_update on public.payments;
 create trigger guard_payment_verification_before_update
 before update of verification_status on public.payments
 for each row execute function public.guard_payment_verification();
@@ -243,6 +278,7 @@ begin
 end;
 $$;
 
+drop trigger if exists sync_notification_read_at_before_update on public.notifications;
 create trigger sync_notification_read_at_before_update
 before update of is_read on public.notifications
 for each row execute function public.sync_notification_read_at();
@@ -289,6 +325,11 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('payment-proofs', 'payment-proofs', false, 10485760, array['application/pdf','image/jpeg','image/jpg','image/png','image/webp'])
 on conflict (id) do nothing;
 
+drop policy if exists "payment_proofs_insert_owner" on storage.objects;
+drop policy if exists "payment_proofs_select_owner" on storage.objects;
+drop policy if exists "payment_proofs_select_staff" on storage.objects;
+drop policy if exists "payment_proofs_delete_owner" on storage.objects;
+
 create policy "payment_proofs_insert_owner" on storage.objects for insert to authenticated
 with check (bucket_id = 'payment-proofs' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy "payment_proofs_select_owner" on storage.objects for select to authenticated
@@ -304,6 +345,7 @@ values
   ('pickup_information', '{"enabled":false,"schedule":"","location":"","contact":"","instructions":""}'::jsonb)
 on conflict (key) do nothing;
 
+drop policy if exists "system_settings_read_authenticated" on public.system_settings;
 create policy "system_settings_read_authenticated"
 on public.system_settings for select to authenticated
 using (true);
