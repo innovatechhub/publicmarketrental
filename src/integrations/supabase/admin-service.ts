@@ -362,14 +362,19 @@ async function loadCoreMaps(): Promise<CoreMaps> {
 export async function fetchAdminDashboardSnapshot(): Promise<AdminDashboardSnapshot> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const [applicationsResult, documentsResult, billingsResult, paymentsResult, activitiesResult] =
+  const [applicationsResult, documentsResult, billingsResult, activitiesResult] =
     await Promise.all([
       db.from("applications").select("id, vendor_id, preferred_stall_id, status, updated_at, application_type"),
       db.from("application_documents").select("id, application_id, verification_status"),
       db.from("billings").select("id, amount_due, amount_paid, status, due_date"),
-      db.from("payments").select("id, amount, payment_date").eq("verification_status", "verified"),
       db.from("activity_logs").select("id, action, entity_name, entity_id, metadata, created_at").order("created_at", { ascending: false }).limit(5),
     ]);
+
+  let paymentsResult = await db.from("payments").select("id, amount, payment_date").eq("verification_status", "verified");
+  if (paymentsResult.error?.code === "42703") {
+    // Legacy payments predate verification workflow; treat recorded entries as collected.
+    paymentsResult = await db.from("payments").select("id, amount, payment_date");
+  }
 
   if (applicationsResult.error) throw applicationsResult.error;
   if (documentsResult.error) throw documentsResult.error;
@@ -549,11 +554,15 @@ export async function fetchVendorRegistry(): Promise<{
 }> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const [billingsResult, paymentsResult, violationsResult] = await Promise.all([
+  const [billingsResult, violationsResult] = await Promise.all([
     db.from("billings").select("id, vendor_id, amount_due, amount_paid"),
-    db.from("payments").select("id, vendor_id, payment_date").eq("verification_status", "verified").order("payment_date", { ascending: false }),
     db.from("violations").select("stall_id, vendor_id").order("created_at", { ascending: false }),
   ]);
+
+  let paymentsResult = await db.from("payments").select("id, vendor_id, payment_date").eq("verification_status", "verified").order("payment_date", { ascending: false });
+  if (paymentsResult.error?.code === "42703") {
+    paymentsResult = await db.from("payments").select("id, vendor_id, payment_date").order("payment_date", { ascending: false });
+  }
 
   if (billingsResult.error) throw billingsResult.error;
   if (paymentsResult.error) throw paymentsResult.error;
