@@ -1166,12 +1166,22 @@ export async function fetchBillings(): Promise<{
 }> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const { data, error } = await db
+  let result = await db
     .from("billings")
     .select("id, vendor_id, billing_month, base_amount, amount_due, due_date, amount_paid, status, penalties, notes")
     .order("billing_month", { ascending: false });
 
-  if (error) throw error;
+  // Older installations stored only the final amount_due. Reports should
+  // remain available until the base_amount migration has been applied.
+  if (result.error?.code === "42703") {
+    result = await db
+      .from("billings")
+      .select("id, vendor_id, billing_month, amount_due, due_date, amount_paid, status, penalties, notes")
+      .order("billing_month", { ascending: false }) as typeof result;
+  }
+
+  if (result.error) throw result.error;
+  const data = result.data;
 
   const stallByVendorId = new Map(
     core.stalls.filter((stall) => stall.vendor_id).map((stall) => [stall.vendor_id!, stall.id]),
@@ -1193,7 +1203,7 @@ export async function fetchBillings(): Promise<{
       stall,
       billingMonth: formatDate(item.billing_month),
       billingMonthIso: item.billing_month,
-      baseAmount: Number(item.base_amount ?? 0),
+      baseAmount: Number(item.base_amount ?? Math.max(Number(item.amount_due ?? 0) - Number(item.penalties ?? 0), 0)),
       amountDue: Number(item.amount_due ?? 0),
       dueDate: formatDate(item.due_date),
       dueDateIso: item.due_date,
