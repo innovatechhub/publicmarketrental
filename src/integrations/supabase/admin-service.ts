@@ -1272,12 +1272,22 @@ export async function fetchPayments(): Promise<{
 }> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const { data, error } = await db
+  let result = await db
     .from("payments")
     .select("id, billing_id, vendor_id, amount, payment_date, payment_method, receipt_number, internal_reference, verification_status, proof_path, payment_group_id, recorded_by, notes")
     .order("payment_date", { ascending: false });
 
-  if (error) throw error;
+  // Keep reports usable while an older database is being upgraded. These
+  // columns were added by the billing/payment enhancement migration.
+  if (result.error?.code === "42703") {
+    result = await db
+      .from("payments")
+      .select("id, billing_id, vendor_id, amount, payment_date, payment_method, receipt_number, recorded_by, notes")
+      .order("payment_date", { ascending: false }) as typeof result;
+  }
+
+  if (result.error) throw result.error;
+  const data = result.data;
 
   const rows = await Promise.all((data ?? []).map(async (item) => {
     const vendor = core.vendorById.get(item.vendor_id);
@@ -1296,13 +1306,13 @@ export async function fetchPayments(): Promise<{
       paymentDateIso: item.payment_date,
       method: item.payment_method,
       receipt: item.receipt_number ?? "-",
-      internalReference: item.internal_reference,
-      verificationStatus: titleizeStatus(item.verification_status),
+      internalReference: item.internal_reference ?? item.receipt_number ?? `PAY-${item.id.slice(0, 8).toUpperCase()}`,
+      verificationStatus: titleizeStatus(item.verification_status ?? "verified"),
       proofPath: item.proof_path ?? null,
       proofUrl: item.proof_path
         ? (await db.storage.from("payment-proofs").createSignedUrl(item.proof_path, 300)).data?.signedUrl ?? null
         : null,
-      paymentGroupId: item.payment_group_id,
+      paymentGroupId: item.payment_group_id ?? item.id,
       recordedBy: recorder?.full_name ?? "Vendor Portal",
       notes: item.notes ?? "",
     };

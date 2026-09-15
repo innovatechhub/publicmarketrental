@@ -739,7 +739,7 @@ export function AdminApplicationsPage() {
 
 // ─── Documents ────────────────────────────────────────────────────────────────
 
-export function AdminStallsPage() {
+export function AdminStallsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { data, isPending, error } = useQuery({ queryKey: queryKeys.stalls, queryFn: fetchStalls, enabled: isSupabaseConfigured });
@@ -788,7 +788,7 @@ export function AdminStallsPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>GROUND FLOOR PLAN</h2>
+        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>{embedded ? "MARKET BLOCKS & STALL CATEGORIES" : "GROUND FLOOR PLAN"}</h2>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #d1d5db" }}>
             <button onClick={() => setView("map")} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: 500, background: view === "map" ? "#1e3a8a" : "#fff", color: view === "map" ? "#fff" : "#374151", border: "none", cursor: "pointer" }} type="button">Map</button>
@@ -1664,7 +1664,7 @@ export function AdminSettingsPage() {
               <CardDescription>Blocks and stalls use the shared market inventory. Configure operational payment and pickup information here.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <a className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-primary hover:bg-muted" href="/admin/stalls">Manage market blocks, stall categories, numbers, rates, and assignments</a>
+              <p className="text-sm text-muted-foreground">Manage market blocks, stall categories, numbers, rates, statuses, and assignments directly in Settings. Updates are shared throughout billing, applications, reports, and the vendor portal.</p>
               <Field label="Payment methods (comma separated)"><Input onChange={(e) => setPaymentMethods(e.target.value)} value={paymentMethods} /></Field>
               <Field label="Pickup enabled">
                 <Select onChange={(e) => setPickup((current) => ({ ...current, enabled: e.target.value === "Yes" }))} value={pickup.enabled ? "Yes" : "No"}><option>Yes</option><option>No</option></Select>
@@ -1676,6 +1676,15 @@ export function AdminSettingsPage() {
               </FormGrid>
               <Field label="Pickup instructions"><Textarea onChange={(e) => setPickup((current) => ({ ...current, instructions: e.target.value }))} rows={3} value={pickup.instructions} /></Field>
               <Button disabled={saveOperations.isPending} onClick={() => saveOperations.mutate()}><Save className="mr-2 h-4 w-4" />Save operational settings</Button>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Market blocks and stall inventory</CardTitle>
+              <CardDescription>This is the system-of-record for every stall and its billing rate.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AdminStallsPage embedded />
             </CardContent>
           </Card>
         </div>
