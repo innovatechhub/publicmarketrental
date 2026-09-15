@@ -20,7 +20,6 @@ export const adminNavigation: NavItem[] = [
   { label: "Payments", to: "/admin/payments", icon: Receipt, roles: ["super_admin", "admin", "finance"] },
   { label: "Reports", to: "/admin/reports", icon: BarChart2, roles: ["super_admin", "admin", "finance"] },
   { label: "Applications", to: "/admin/applications", icon: FileText, roles: ["super_admin", "admin"] },
-  { label: "Billing", to: "/admin/billing", icon: WalletCards, roles: ["super_admin", "admin", "finance"] },
   { label: "Violations", to: "/admin/violations", icon: ShieldAlert, roles: ["super_admin", "admin"] },
   { label: "Notifications", to: "/admin/notifications", icon: Bell, roles: ["super_admin", "admin", "finance"] },
   { label: "Staff", to: "/admin/staff", icon: UserCog, roles: ["super_admin"] },
