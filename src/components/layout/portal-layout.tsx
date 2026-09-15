@@ -68,9 +68,6 @@ export function PortalLayout({ navigation, portalName }: PortalLayoutProps) {
             <MarketLogo className="h-14 w-14 shrink-0 bg-emerald-50" />
             <div className="min-w-0">
               <h1 className="truncate text-xl font-bold text-[#00966f]">{portalName}</h1>
-              <p className="truncate text-sm text-slate-500">
-                Culasi City Government - Public Market Division
-              </p>
             </div>
           </div>
 

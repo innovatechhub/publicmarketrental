@@ -37,9 +37,6 @@ export function AdminLayout({ navigation }: AdminLayoutProps) {
               <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#1a1a2e", margin: 0, lineHeight: 1.2 }}>
                 Culasi Public Market Management System
               </h1>
-              <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>
-                Culasi City Government - Public Market Division
-              </p>
             </div>
           </div>
 

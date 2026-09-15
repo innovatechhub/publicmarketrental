@@ -1687,6 +1687,14 @@ export function AdminSettingsPage() {
               <AdminStallsPage embedded />
             </CardContent>
           </Card>
+          <section className="space-y-4 border-t border-border pt-6">
+            <h2 className="text-xl font-bold text-primary">Billing management</h2>
+            <AdminBillingPage />
+          </section>
+          <section className="space-y-4 border-t border-border pt-6">
+            <h2 className="text-xl font-bold text-primary">Payment reports</h2>
+            <AdminReportsPage />
+          </section>
         </div>
       ) : null}
 

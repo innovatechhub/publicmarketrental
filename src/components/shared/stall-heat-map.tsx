@@ -257,6 +257,7 @@ function BlueprintTile({ placement, stall, onEdit, onSelect }: {
 }) {
   const sk = stall ? normalizeStatus(stall.status) : "unknown";
   const ss = STATUS_STYLES[sk];
+  const sectionLabel = stall?.type?.trim();
   return (
     <button
       aria-label={stall ? `Stall ${stall.stall} — ${stall.status}` : `Stall ${placement.num}`}
@@ -272,8 +273,9 @@ function BlueprintTile({ placement, stall, onEdit, onSelect }: {
       title={stall ? `${stall.stall} — ${stall.status}` : `Stall ${placement.num}`}
       type="button"
     >
-      <span style={{ fontSize: 12, fontWeight: 700, color: ss.text, lineHeight: 1 }}>
-        {placement.num}
+      <span className="flex min-w-0 flex-col items-center leading-none" style={{ color: ss.text }}>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>{placement.num}</span>
+        {sectionLabel ? <span className="mt-1 max-w-full truncate px-0.5 text-[6px] font-bold uppercase">{sectionLabel}</span> : null}
       </span>
       <span className="absolute inset-0 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
         style={{ background: "rgba(0,0,0,0.10)" }} />
@@ -413,7 +415,9 @@ function PlanLabel() {
 function Legend() {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 pt-2.5 pb-3 border-t border-gray-100 bg-white">
-      {(Object.entries(STATUS_STYLES) as [StatusKey, typeof STATUS_STYLES[StatusKey]][]).map(([, s]) => (
+      {(Object.entries(STATUS_STYLES) as [StatusKey, typeof STATUS_STYLES[StatusKey]][])
+        .filter(([key]) => key === "available" || key === "occupied" || key === "under_maintenance")
+        .map(([, s]) => (
         <div className="flex items-center gap-1.5" key={s.label}>
           <span className="inline-block h-3 w-3 rounded-sm border" style={{ background: s.bg, borderColor: s.border }} />
           <span className="text-[11px] font-medium" style={{ color: s.text }}>{s.label}</span>
@@ -587,7 +591,12 @@ export function StallHeatMap({ stalls, onEdit }: StallHeatMapProps) {
 
   const stallMap = useMemo(() => {
     const map = new Map<string, AdminStallRecord>();
-    for (const s of stalls) map.set(s.stallNumber, s);
+    for (const s of stalls) {
+      const status = normalizeStatus(s.status);
+      if (status === "available" || status === "occupied" || status === "under_maintenance") {
+        map.set(s.stallNumber, s);
+      }
+    }
     return map;
   }, [stalls]);
 
@@ -605,7 +614,7 @@ export function StallHeatMap({ stalls, onEdit }: StallHeatMapProps) {
       {/* Summary bar */}
       <div className="flex flex-wrap gap-x-5 gap-y-1 px-5 py-2 border-b border-gray-100 bg-gray-50">
         {(Object.entries(STATUS_STYLES) as [StatusKey, typeof STATUS_STYLES[StatusKey]][])
-          .filter(([key]) => key !== "unknown")
+          .filter(([key]) => key === "available" || key === "occupied" || key === "under_maintenance")
           .map(([key, s]) => counts[key] > 0 ? (
             <div className="flex items-center gap-1.5 text-xs" key={key}>
               <span className="h-2 w-2 rounded-full" style={{ background: s.dot }} />
@@ -622,15 +631,18 @@ export function StallHeatMap({ stalls, onEdit }: StallHeatMapProps) {
           <EmptyTile p={LB_BLANK} />
 
           {/* All stalls */}
-          {STALLS.map((p, i) => (
-            <BlueprintTile
-              key={`${p.num}-${i}`}
-              onEdit={onEdit}
-              onSelect={(s, num) => setModal({ stall: s, stallNum: num })}
-              placement={p}
-              stall={stallMap.get(p.num)}
-            />
-          ))}
+          {STALLS.map((p, i) => {
+            const stall = stallMap.get(p.num);
+            return stall ? (
+              <BlueprintTile
+                key={`${p.num}-${i}`}
+                onEdit={onEdit}
+                onSelect={(s, num) => setModal({ stall: s, stallNum: num })}
+                placement={p}
+                stall={stall}
+              />
+            ) : null;
+          })}
         </div>
       </div>
 

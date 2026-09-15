@@ -32,9 +32,6 @@ export function MarketBrandHeader({ className }: { className?: string }) {
       <h1 className="mt-4 font-sans text-2xl font-bold leading-tight text-[#2045b8] sm:text-3xl">
         Culasi Public Market Management System
       </h1>
-      <p className="mt-2 text-sm text-slate-600 sm:text-base">
-        Culasi City Government - Public Market Division
-      </p>
     </div>
   );
 }
