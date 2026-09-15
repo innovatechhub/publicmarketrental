@@ -1552,6 +1552,7 @@ export function AdminStaffPage() {
 export function AdminSettingsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<"configuration" | "market" | "billing" | "reports">("configuration");
   const { data, isPending, error } = useQuery({ queryKey: queryKeys.settings, queryFn: fetchSettings, enabled: isSupabaseConfigured });
   const [billing, setBilling] = useState({ billingDay: "5", penaltyAmount: "150", reminderDaysBefore: "3" });
   const [templates, setTemplates] = useState({ approval: "", rejection: "", overdue: "" });
@@ -1611,7 +1612,25 @@ export function AdminSettingsPage() {
       {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <div className="space-y-6">
-          <Card>
+          <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-white p-2 print:hidden">
+            {([
+              ["configuration", "Configuration"],
+              ["market", "Market & Pickup"],
+              ["billing", "Billing"],
+              ["reports", "Reports"],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={value}
+                onClick={() => setActiveTab(value)}
+                variant={activeTab === value ? "default" : "ghost"}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+
+          <div className={activeTab === "configuration" ? "space-y-6" : "hidden"}>
+            <Card>
             <CardHeader><CardTitle>Document requirements</CardTitle></CardHeader>
             <CardContent className="p-0">
               <Tbl head={["Document name", "Required", "Has expiry", "Sort order", "Actions"]}>
@@ -1633,9 +1652,9 @@ export function AdminSettingsPage() {
                 ))}
               </Tbl>
             </CardContent>
-          </Card>
+            </Card>
 
-          <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+            <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
             <Card>
               <CardHeader><CardTitle>Billing schedules</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -1657,8 +1676,11 @@ export function AdminSettingsPage() {
                 <Button onClick={() => saveTemplates.mutate()}><Save className="mr-2 h-4 w-4" />Save templates</Button>
               </CardContent>
             </Card>
+            </div>
           </div>
-          <Card>
+
+          <div className={activeTab === "market" ? "space-y-6" : "hidden"}>
+            <Card>
             <CardHeader>
               <CardTitle>Market, stall, payment, and pickup configuration</CardTitle>
               <CardDescription>Blocks and stalls use the shared market inventory. Configure operational payment and pickup information here.</CardDescription>
@@ -1677,8 +1699,8 @@ export function AdminSettingsPage() {
               <Field label="Pickup instructions"><Textarea onChange={(e) => setPickup((current) => ({ ...current, instructions: e.target.value }))} rows={3} value={pickup.instructions} /></Field>
               <Button disabled={saveOperations.isPending} onClick={() => saveOperations.mutate()}><Save className="mr-2 h-4 w-4" />Save operational settings</Button>
             </CardContent>
-          </Card>
-          <Card>
+            </Card>
+            <Card>
             <CardHeader>
               <CardTitle>Market blocks and stall inventory</CardTitle>
               <CardDescription>This is the system-of-record for every stall and its billing rate.</CardDescription>
@@ -1686,13 +1708,13 @@ export function AdminSettingsPage() {
             <CardContent>
               <AdminStallsPage embedded />
             </CardContent>
-          </Card>
-          <section className="space-y-4 border-t border-border pt-6">
-            <h2 className="text-xl font-bold text-primary">Billing management</h2>
+            </Card>
+          </div>
+
+          <section className={activeTab === "billing" ? "space-y-4" : "hidden"}>
             <AdminBillingPage />
           </section>
-          <section className="space-y-4 border-t border-border pt-6">
-            <h2 className="text-xl font-bold text-primary">Payment reports</h2>
+          <section className={activeTab === "reports" ? "space-y-4" : "hidden"}>
             <AdminReportsPage />
           </section>
         </div>
