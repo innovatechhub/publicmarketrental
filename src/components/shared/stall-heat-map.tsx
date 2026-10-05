@@ -124,7 +124,10 @@ function StallModal({ stall, stallNum, onClose }: {
   const queryClient = useQueryClient();
 
   const displayName = stall ? stall.stall : `Stall ${stallNum}`;
-  const isOccupied = stall ? normalizeStatus(stall.status) === "occupied" : false;
+  const statusOccupied = stall ? normalizeStatus(stall.status) === "occupied" : false;
+  // Occupied stalls with no vendor linked fall through to the assign form
+  const isOccupied = statusOccupied && !!stall?.currentVendorId;
+  const isUnlinked = statusOccupied && !isOccupied;
 
   const [selectedVendorId, setSelectedVendorId] = useState("");
 
@@ -203,6 +206,12 @@ function StallModal({ stall, stallNum, onClose }: {
             </>
           ) : (
             /* ── Available: pick existing vendor from dropdown ── */
+            <>
+            {isUnlinked && (
+              <p style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#92400e" }}>
+                This stall is marked <strong>Occupied</strong> but has no vendor linked to it. Select a vendor below to link one.
+              </p>
+            )}
             <MF label="Select Vendor" required>
               <select
                 className={selectCls}
@@ -216,6 +225,7 @@ function StallModal({ stall, stallNum, onClose }: {
                 ))}
               </select>
             </MF>
+            </>
           )}
         </div>
 

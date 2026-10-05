@@ -1,0 +1,28 @@
+- generic [ref=f2e2]:
+  - generic [ref=f2e7]:
+    - generic [ref=f2e8]:
+      - img "Official Culasi seal" [ref=f2e10]
+      - heading "Culasi Public Market Management System" [level=1] [ref=f2e11]
+    - main [ref=f2e12]:
+      - generic [ref=f2e13]:
+        - generic [ref=f2e14]:
+          - link "Back" [ref=f2e15] [cursor=pointer]:
+            - /url: /login
+          - heading "Administrator Login" [level=2] [ref=f2e18]
+          - paragraph [ref=f2e19]: Access market management tools
+        - generic [ref=f2e20]:
+          - generic [ref=f2e21]:
+            - generic [ref=f2e22]:
+              - text: Email
+              - textbox "Enter your email" [ref=f2e23]: admin@culasi.gov.ph
+            - generic [ref=f2e24]:
+              - text: Password
+              - generic [ref=f2e25]:
+                - textbox "Enter your password" [ref=f2e26]: culasi123
+                - button "Show password" [ref=f2e27] [cursor=pointer]
+            - button "Signing in..." [disabled]
+          - generic [ref=f2e32]:
+            - link "Forgot password" [ref=f2e33] [cursor=pointer]:
+              - /url: /forgot-password
+            - paragraph [ref=f2e34]: admin@culasi.gov.ph / culasi123
+  - region "Notifications alt+T"

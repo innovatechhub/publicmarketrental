@@ -1,0 +1,349 @@
+- generic [ref=f3e2]:
+  - generic [ref=f3e6]:
+    - banner [ref=f3e7]:
+      - generic [ref=f3e8]:
+        - generic [ref=f3e9]:
+          - img "Municipality of Culasi seal" [ref=f3e11]
+          - heading "Culasi Public Market Management System" [level=1] [ref=f3e13]
+        - generic [ref=f3e14]:
+          - generic [ref=f3e15]:
+            - paragraph [ref=f3e16]: Arvin Estrellado
+            - paragraph [ref=f3e17]: Admin
+          - button "Logout" [ref=f3e18] [cursor=pointer]
+    - navigation [ref=f3e19]:
+      - generic [ref=f3e20]:
+        - link "Overview" [ref=f3e21] [cursor=pointer]:
+          - /url: /admin/dashboard
+        - link "Stall Map" [ref=f3e22] [cursor=pointer]:
+          - /url: /admin/stalls
+        - link "Vendors" [ref=f3e23] [cursor=pointer]:
+          - /url: /admin/vendors
+        - link "Payments" [ref=f3e24] [cursor=pointer]:
+          - /url: /admin/payments
+        - link "Reports" [ref=f3e25] [cursor=pointer]:
+          - /url: /admin/reports
+        - link "Applications" [ref=f3e26] [cursor=pointer]:
+          - /url: /admin/applications
+        - link "Violations" [ref=f3e27] [cursor=pointer]:
+          - /url: /admin/violations
+        - link "Notifications" [ref=f3e28] [cursor=pointer]:
+          - /url: /admin/notifications
+        - link "Settings" [ref=f3e29] [cursor=pointer]:
+          - /url: /admin/settings
+    - main [ref=f3e30]:
+      - generic [ref=f3e31]:
+        - generic [ref=f3e32]:
+          - heading "MARKET STALL MAP" [level=2] [ref=f3e33]
+          - generic [ref=f3e34]:
+            - generic [ref=f3e35]:
+              - button "Map" [ref=f3e36] [cursor=pointer]
+              - button "List" [ref=f3e37] [cursor=pointer]
+            - button "+ New Stall" [ref=f3e38] [cursor=pointer]
+        - generic [ref=f3e40]:
+          - generic [ref=f3e41]:
+            - button "Ground Floor" [pressed] [ref=f3e42] [cursor=pointer]
+            - button "Annex 2nd Floor" [ref=f3e43] [cursor=pointer]
+            - button "Mixed Section" [ref=f3e44] [cursor=pointer]
+            - button "Main 2nd Floor" [ref=f3e45] [cursor=pointer]
+          - generic [ref=f3e46]:
+            - generic [ref=f3e47]:
+              - generic [ref=f3e49]: Available
+              - generic [ref=f3e50]: "65"
+            - generic [ref=f3e51]:
+              - generic [ref=f3e53]: Occupied
+              - generic [ref=f3e54]: "11"
+            - generic [ref=f3e55]: 156 of 232 stalls on this sheet have no record (79 stall records loaded)
+          - generic [ref=f3e57]:
+            - button "Stall Wet Market 12 — Occupied" [ref=f3e59] [cursor=pointer]:
+              - generic [ref=f3e60]:
+                - generic [ref=f3e61]: "12"
+                - generic [ref=f3e62]: Meat
+            - button "Stall Wet Market 11 — Available" [ref=f3e64] [cursor=pointer]:
+              - generic [ref=f3e65]: "11"
+            - button "Stall Dry Goods 10 — Available" [ref=f3e68] [cursor=pointer]:
+              - generic [ref=f3e69]: "10"
+            - button "Stall Wet Market 9 — Occupied" [ref=f3e72] [cursor=pointer]:
+              - generic [ref=f3e73]:
+                - generic [ref=f3e74]: "9"
+                - generic [ref=f3e75]: Standard
+            - button "Stall Dry Goods 8 — Available" [ref=f3e77] [cursor=pointer]:
+              - generic [ref=f3e78]: "8"
+            - button "Stall Wet Market 7 — Occupied" [ref=f3e81] [cursor=pointer]:
+              - generic [ref=f3e82]:
+                - generic [ref=f3e83]: "7"
+                - generic [ref=f3e84]: Standard
+            - button "Stall Wet Market 6 — Occupied" [ref=f3e86] [cursor=pointer]:
+              - generic [ref=f3e87]:
+                - generic [ref=f3e88]: "6"
+                - generic [ref=f3e89]: Meat
+            - button "Stall Wet Market 5 — Occupied" [ref=f3e91] [cursor=pointer]:
+              - generic [ref=f3e92]:
+                - generic [ref=f3e93]: "5"
+                - generic [ref=f3e94]: Standard
+            - button "Stall Wet Market 4 — Available" [ref=f3e96] [cursor=pointer]:
+              - generic [ref=f3e97]:
+                - generic [ref=f3e98]: "4"
+                - generic [ref=f3e99]: Standard
+            - button "Stall Wet Market 3 — Available" [ref=f3e101] [cursor=pointer]:
+              - generic [ref=f3e102]:
+                - generic [ref=f3e103]: "3"
+                - generic [ref=f3e104]: Standard
+            - button "Stall Wet Market 2 — Available" [ref=f3e106] [cursor=pointer]:
+              - generic [ref=f3e107]:
+                - generic [ref=f3e108]: "2"
+                - generic [ref=f3e109]: Standard
+            - button "Stall Wet Market 1 — Available" [ref=f3e111] [cursor=pointer]:
+              - generic [ref=f3e112]:
+                - generic [ref=f3e113]: "1"
+                - generic [ref=f3e114]: Standard
+            - button "Stall Wet Market 60 — Occupied" [ref=f3e116] [cursor=pointer]:
+              - generic [ref=f3e117]:
+                - generic [ref=f3e118]: "60"
+                - generic [ref=f3e119]: Standard
+            - button "Stall Wet Market 59 — Occupied" [ref=f3e121] [cursor=pointer]:
+              - generic [ref=f3e122]:
+                - generic [ref=f3e123]: "59"
+                - generic [ref=f3e124]: Standard
+            - button "Stall Wet Market 58 — Occupied" [ref=f3e126] [cursor=pointer]:
+              - generic [ref=f3e127]:
+                - generic [ref=f3e128]: "58"
+                - generic [ref=f3e129]: Standard
+            - button "Stall Wet Market 57 — Available" [ref=f3e131] [cursor=pointer]:
+              - generic [ref=f3e132]:
+                - generic [ref=f3e133]: "57"
+                - generic [ref=f3e134]: Standard
+            - button "Stall Wet Market 56 — Available" [ref=f3e136] [cursor=pointer]:
+              - generic [ref=f3e137]:
+                - generic [ref=f3e138]: "56"
+                - generic [ref=f3e139]: Standard
+            - button "Stall Wet Market 55 — Available" [ref=f3e141] [cursor=pointer]:
+              - generic [ref=f3e142]:
+                - generic [ref=f3e143]: "55"
+                - generic [ref=f3e144]: Standard
+            - button "Stall Wet Market 54 — Available" [ref=f3e146] [cursor=pointer]:
+              - generic [ref=f3e147]:
+                - generic [ref=f3e148]: "54"
+                - generic [ref=f3e149]: Standard
+            - button "Stall Wet Market 53 — Available" [ref=f3e151] [cursor=pointer]:
+              - generic [ref=f3e152]:
+                - generic [ref=f3e153]: "53"
+                - generic [ref=f3e154]: Standard
+            - button "Stall Wet Market 52 — Available" [ref=f3e156] [cursor=pointer]:
+              - generic [ref=f3e157]:
+                - generic [ref=f3e158]: "52"
+                - generic [ref=f3e159]: Standard
+            - button "Stall Wet Market 51 — Available" [ref=f3e161] [cursor=pointer]:
+              - generic [ref=f3e162]:
+                - generic [ref=f3e163]: "51"
+                - generic [ref=f3e164]: Standard
+            - button "Stall Wet Market 50 — Available" [ref=f3e166] [cursor=pointer]:
+              - generic [ref=f3e167]:
+                - generic [ref=f3e168]: "50"
+                - generic [ref=f3e169]: Standard
+            - button "Stall Dry Goods 49 — Occupied" [ref=f3e171] [cursor=pointer]:
+              - generic [ref=f3e172]: "49"
+            - button "Stall Wet Market 48 — Available" [ref=f3e175] [cursor=pointer]:
+              - generic [ref=f3e176]:
+                - generic [ref=f3e177]: "48"
+                - generic [ref=f3e178]: Standard
+            - button "Stall Wet Market 47 — Available" [ref=f3e180] [cursor=pointer]:
+              - generic [ref=f3e181]:
+                - generic [ref=f3e182]: "47"
+                - generic [ref=f3e183]: Standard
+            - button "Stall Wet Market 46 — Available" [ref=f3e185] [cursor=pointer]:
+              - generic [ref=f3e186]:
+                - generic [ref=f3e187]: "46"
+                - generic [ref=f3e188]: Standard
+            - button "Stall Wet Market 45 — Available" [ref=f3e190] [cursor=pointer]:
+              - generic [ref=f3e191]:
+                - generic [ref=f3e192]: "45"
+                - generic [ref=f3e193]: Standard
+            - button "Stall Wet Market 44 — Available" [ref=f3e195] [cursor=pointer]:
+              - generic [ref=f3e196]:
+                - generic [ref=f3e197]: "44"
+                - generic [ref=f3e198]: Standard
+            - button "Stall Wet Market 43 — Available" [ref=f3e200] [cursor=pointer]:
+              - generic [ref=f3e201]:
+                - generic [ref=f3e202]: "43"
+                - generic [ref=f3e203]: Standard
+            - button "Stall Wet Market 42 — Available" [ref=f3e205] [cursor=pointer]:
+              - generic [ref=f3e206]:
+                - generic [ref=f3e207]: "42"
+                - generic [ref=f3e208]: Standard
+            - button "Stall Wet Market 41 — Available" [ref=f3e210] [cursor=pointer]:
+              - generic [ref=f3e211]:
+                - generic [ref=f3e212]: "41"
+                - generic [ref=f3e213]: Standard
+            - button "Stall Wet Market 40 — Available" [ref=f3e215] [cursor=pointer]:
+              - generic [ref=f3e216]:
+                - generic [ref=f3e217]: "40"
+                - generic [ref=f3e218]: Standard
+            - button "Stall Wet Market 240 — Available" [ref=f3e220] [cursor=pointer]:
+              - generic [ref=f3e221]:
+                - generic [ref=f3e222]: "240"
+                - generic [ref=f3e223]: Standard
+            - button "Stall Wet Market 241 — Available" [ref=f3e225] [cursor=pointer]:
+              - generic [ref=f3e226]:
+                - generic [ref=f3e227]: "241"
+                - generic [ref=f3e228]: Standard
+            - button "Stall Wet Market 242 — Available" [ref=f3e230] [cursor=pointer]:
+              - generic [ref=f3e231]:
+                - generic [ref=f3e232]: "242"
+                - generic [ref=f3e233]: Standard
+            - button "Stall Wet Market 243 — Available" [ref=f3e235] [cursor=pointer]:
+              - generic [ref=f3e236]:
+                - generic [ref=f3e237]: "243"
+                - generic [ref=f3e238]: Standard
+            - button "Stall Wet Market 245 — Available" [ref=f3e240] [cursor=pointer]:
+              - generic [ref=f3e241]:
+                - generic [ref=f3e242]: "245"
+                - generic [ref=f3e243]: Standard
+            - button "Stall Wet Market 246 — Available" [ref=f3e245] [cursor=pointer]:
+              - generic [ref=f3e246]:
+                - generic [ref=f3e247]: "246"
+                - generic [ref=f3e248]: Standard
+            - button "Stall Wet Market 247 — Available" [ref=f3e250] [cursor=pointer]:
+              - generic [ref=f3e251]:
+                - generic [ref=f3e252]: "247"
+                - generic [ref=f3e253]: Standard
+            - button "Stall Wet Market 248 — Available" [ref=f3e255] [cursor=pointer]:
+              - generic [ref=f3e256]:
+                - generic [ref=f3e257]: "248"
+                - generic [ref=f3e258]: Standard
+            - button "Stall Wet Market 36 — Available" [ref=f3e260] [cursor=pointer]:
+              - generic [ref=f3e261]:
+                - generic [ref=f3e262]: "36"
+                - generic [ref=f3e263]: Standard
+            - button "Stall Wet Market 37 — Available" [ref=f3e265] [cursor=pointer]:
+              - generic [ref=f3e266]:
+                - generic [ref=f3e267]: "37"
+                - generic [ref=f3e268]: Standard
+            - button "Stall Wet Market 38 — Available" [ref=f3e270] [cursor=pointer]:
+              - generic [ref=f3e271]:
+                - generic [ref=f3e272]: "38"
+                - generic [ref=f3e273]: Standard
+            - button "Stall Wet Market 39 — Available" [ref=f3e275] [cursor=pointer]:
+              - generic [ref=f3e276]:
+                - generic [ref=f3e277]: "39"
+                - generic [ref=f3e278]: Standard
+            - button "Stall Wet Market 195 — Available" [ref=f3e280] [cursor=pointer]:
+              - generic [ref=f3e281]:
+                - generic [ref=f3e282]: "195"
+                - generic [ref=f3e283]: Standard
+            - button "Stall Wet Market 194 — Available" [ref=f3e285] [cursor=pointer]:
+              - generic [ref=f3e286]:
+                - generic [ref=f3e287]: "194"
+                - generic [ref=f3e288]: Standard
+            - button "Stall Wet Market 193 — Available" [ref=f3e290] [cursor=pointer]:
+              - generic [ref=f3e291]:
+                - generic [ref=f3e292]: "193"
+                - generic [ref=f3e293]: Standard
+            - button "Stall Wet Market 192 — Available" [ref=f3e295] [cursor=pointer]:
+              - generic [ref=f3e296]:
+                - generic [ref=f3e297]: "192"
+                - generic [ref=f3e298]: Standard
+            - button "Stall Wet Market 191 — Available" [ref=f3e300] [cursor=pointer]:
+              - generic [ref=f3e301]:
+                - generic [ref=f3e302]: "191"
+                - generic [ref=f3e303]: Standard
+            - button "Stall Wet Market 190 — Available" [ref=f3e305] [cursor=pointer]:
+              - generic [ref=f3e306]:
+                - generic [ref=f3e307]: "190"
+                - generic [ref=f3e308]: Standard
+            - button "Stall Wet Market 189 — Available" [ref=f3e310] [cursor=pointer]:
+              - generic [ref=f3e311]:
+                - generic [ref=f3e312]: "189"
+                - generic [ref=f3e313]: Standard
+            - button "Stall Wet Market 188 — Available" [ref=f3e315] [cursor=pointer]:
+              - generic [ref=f3e316]:
+                - generic [ref=f3e317]: "188"
+                - generic [ref=f3e318]: Standard
+            - button "Stall Wet Market 170 — Available" [ref=f3e320] [cursor=pointer]:
+              - generic [ref=f3e321]:
+                - generic [ref=f3e322]: "170"
+                - generic [ref=f3e323]: Standard
+            - button "Stall Wet Market 171 — Available" [ref=f3e325] [cursor=pointer]:
+              - generic [ref=f3e326]:
+                - generic [ref=f3e327]: "171"
+                - generic [ref=f3e328]: Standard
+            - button "Stall Wet Market 172 — Available" [ref=f3e330] [cursor=pointer]:
+              - generic [ref=f3e331]:
+                - generic [ref=f3e332]: "172"
+                - generic [ref=f3e333]: Standard
+            - button "Stall Wet Market 173 — Available" [ref=f3e335] [cursor=pointer]:
+              - generic [ref=f3e336]:
+                - generic [ref=f3e337]: "173"
+                - generic [ref=f3e338]: Standard
+            - button "Stall Wet Market 174 — Available" [ref=f3e340] [cursor=pointer]:
+              - generic [ref=f3e341]:
+                - generic [ref=f3e342]: "174"
+                - generic [ref=f3e343]: Standard
+            - button "Stall Wet Market 175 — Available" [ref=f3e345] [cursor=pointer]:
+              - generic [ref=f3e346]:
+                - generic [ref=f3e347]: "175"
+                - generic [ref=f3e348]: Standard
+            - button "Stall Wet Market 176 — Available" [ref=f3e350] [cursor=pointer]:
+              - generic [ref=f3e351]:
+                - generic [ref=f3e352]: "176"
+                - generic [ref=f3e353]: Standard
+            - button "Stall Wet Market 177 — Available" [ref=f3e355] [cursor=pointer]:
+              - generic [ref=f3e356]:
+                - generic [ref=f3e357]: "177"
+                - generic [ref=f3e358]: Standard
+            - button "Stall Wet Market 187 — Available" [ref=f3e360] [cursor=pointer]:
+              - generic [ref=f3e361]:
+                - generic [ref=f3e362]: "187"
+                - generic [ref=f3e363]: Standard
+            - button "Stall Wet Market 186 — Available" [ref=f3e365] [cursor=pointer]:
+              - generic [ref=f3e366]:
+                - generic [ref=f3e367]: "186"
+                - generic [ref=f3e368]: Standard
+            - button "Stall Wet Market 185 — Available" [ref=f3e370] [cursor=pointer]:
+              - generic [ref=f3e371]:
+                - generic [ref=f3e372]: "185"
+                - generic [ref=f3e373]: Standard
+            - button "Stall Wet Market 184 — Available" [ref=f3e375] [cursor=pointer]:
+              - generic [ref=f3e376]:
+                - generic [ref=f3e377]: "184"
+                - generic [ref=f3e378]: Standard
+            - button "Stall Wet Market 183 — Available" [ref=f3e380] [cursor=pointer]:
+              - generic [ref=f3e381]:
+                - generic [ref=f3e382]: "183"
+                - generic [ref=f3e383]: Standard
+            - button "Stall Wet Market 178 — Available" [ref=f3e385] [cursor=pointer]:
+              - generic [ref=f3e386]:
+                - generic [ref=f3e387]: "178"
+                - generic [ref=f3e388]: Standard
+            - button "Stall Wet Market 179 — Available" [ref=f3e390] [cursor=pointer]:
+              - generic [ref=f3e391]:
+                - generic [ref=f3e392]: "179"
+                - generic [ref=f3e393]: Standard
+            - button "Stall Wet Market 180 — Available" [ref=f3e395] [cursor=pointer]:
+              - generic [ref=f3e396]:
+                - generic [ref=f3e397]: "180"
+                - generic [ref=f3e398]: Standard
+            - button "Stall Wet Market 181 — Available" [ref=f3e400] [cursor=pointer]:
+              - generic [ref=f3e401]:
+                - generic [ref=f3e402]: "181"
+                - generic [ref=f3e403]: Standard
+            - button "Stall Wet Market 182 — Available" [ref=f3e405] [cursor=pointer]:
+              - generic [ref=f3e406]:
+                - generic [ref=f3e407]: "182"
+                - generic [ref=f3e408]: Standard
+            - button "Stall Wet Market 576 — Occupied" [ref=f3e410] [cursor=pointer]:
+              - generic [ref=f3e411]:
+                - generic [ref=f3e412]: "576"
+                - generic [ref=f3e413]: Meat
+            - button "Stall Dry Goods 575 — Available" [ref=f3e415] [cursor=pointer]:
+              - generic [ref=f3e416]: "575"
+            - button "Stall Dry Goods 574 — Available" [ref=f3e419] [cursor=pointer]:
+              - generic [ref=f3e420]: "574"
+            - button "Stall Dry Goods 573 — Occupied" [ref=f3e423] [cursor=pointer]:
+              - generic [ref=f3e424]: "573"
+            - button "Stall Dry Goods 572 — Available" [ref=f3e427] [cursor=pointer]:
+              - generic [ref=f3e428]: "572"
+          - generic [ref=f3e431]:
+            - generic [ref=f3e432]: Available
+            - generic [ref=f3e435]: Occupied
+            - generic [ref=f3e438]: Under Maintenance
+  - region "Notifications alt+T"
