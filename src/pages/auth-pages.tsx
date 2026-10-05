@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { BriefcaseBusiness, ChevronLeft, UserRound } from "lucide-react";
-import { LoginForm, RegisterForm, ForgotPasswordForm } from "@/features/auth/forms";
+import { useAuth } from "@/features/auth/auth-context";
+import { LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm } from "@/features/auth/forms";
 import { isSupabaseConfigured } from "@/integrations/supabase/client";
 
 export function LoginPage() {
@@ -136,6 +137,33 @@ export function RegisterPage() {
       </div>
       <div className="px-8 py-6">
         <RegisterForm />
+      </div>
+    </div>
+  );
+}
+
+export function ResetPasswordPage() {
+  const { isAuthenticated, isBootstrapping } = useAuth();
+
+  return (
+    <div className="mx-auto w-full max-w-[376px] overflow-hidden rounded-lg bg-white shadow-[0_22px_55px_-30px_rgba(15,23,42,0.45)]">
+      <div className="bg-gradient-to-br from-[#0aa073] to-[#18b982] px-7 py-6 text-white">
+        <h2 className="text-2xl font-bold">Set New Password</h2>
+        <p className="mt-2 text-sm font-semibold text-white/90">Choose a new password for your account</p>
+      </div>
+      <div className="space-y-5 px-7 py-6">
+        {isBootstrapping ? (
+          <p className="text-sm text-slate-500">Checking your reset link...</p>
+        ) : isAuthenticated ? (
+          <ResetPasswordForm />
+        ) : (
+          <>
+            <p className="text-sm text-destructive">This password reset link is invalid or has expired.</p>
+            <Link className="text-sm font-semibold text-[#2045b8]" to="/forgot-password">
+              Request a new reset email
+            </Link>
+          </>
+        )}
       </div>
     </div>
   );

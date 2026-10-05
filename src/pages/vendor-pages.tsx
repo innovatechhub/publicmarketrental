@@ -116,7 +116,7 @@ type SupportRequestValues = z.infer<typeof supportRequestSchema>;
 export function VendorDashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isReady, applications, billings, documents, notifications } = useVendorWorkspace();
+  const { isReady, applications, billings, documents, notifications, stall } = useVendorWorkspace();
 
   const orderedBillings = useMemo(
     () => [...billings].sort((left, right) => new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime()),
@@ -153,6 +153,18 @@ export function VendorDashboardPage() {
           </Button>
         </div>
       </div>
+
+        <Card className="border-l-4 border-l-[#00966f]">
+          <CardHeader>
+            <CardTitle className="text-sm uppercase tracking-wide text-slate-500">Assigned Stall</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-4">
+            <PlainInfo label="Stall" value={stall.stall} />
+            <PlainInfo label="Stall Type" value={stall.type} />
+            <PlainInfo label="Monthly Rate" value={stall.rate} />
+            <PlainInfo label="Lease End" value={stall.leaseEnd} />
+          </CardContent>
+        </Card>
 
         <Card className="border-l-4 border-l-[#294cc2]">
           <CardHeader>
@@ -599,6 +611,173 @@ export function VendorApplicationsPage() {
   );
 }
 
+export function VendorStallPage() {
+  const navigate = useNavigate();
+  const { isReady, stall, requestLeaseRenewal, submitSupportRequest } = useVendorWorkspace();
+  const [showSupportModal, setShowSupportModal] = useState(false);
+  const [isRequestingRenewal, setIsRequestingRenewal] = useState(false);
+
+  const form = useForm<SupportRequestValues>({
+    resolver: zodResolver(supportRequestSchema),
+    defaultValues: { subject: "", detail: "" },
+  });
+
+  const hasStall = stall.stall !== "No stall assigned";
+  const hasLease = stall.leaseStart !== "-";
+  const renewalPending =
+    stall.renewalStatus === "Pending Renewal Review" ||
+    stall.supportRequests.some((item) => item.subject === "Lease Renewal Request" && item.status !== "Resolved");
+  const paged = usePagination(stall.supportRequests);
+
+  const onRequestRenewal = async () => {
+    setIsRequestingRenewal(true);
+    try {
+      await requestLeaseRenewal();
+      toast.success("Lease renewal request sent to the market office.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unable to request lease renewal.");
+    } finally {
+      setIsRequestingRenewal(false);
+    }
+  };
+
+  const onSubmitSupport = form.handleSubmit(async (values) => {
+    try {
+      await submitSupportRequest(values);
+      form.reset();
+      setShowSupportModal(false);
+      toast.success("Support request submitted.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unable to submit support request.");
+    }
+  });
+
+  if (!isReady) {
+    return <LoadingCard message="Loading stall information..." />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        action={
+          hasStall ? (
+            <Button onClick={() => setShowSupportModal(true)} variant="secondary">
+              <Send className="mr-2 h-4 w-4" />Report a stall concern
+            </Button>
+          ) : undefined
+        }
+        description="View your assigned stall, lease period, and requests sent to the market office."
+        eyebrow="Assigned stall"
+        title="My stall"
+      />
+
+      {!hasStall ? (
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <EmptyState message="No stall has been assigned to your account yet. Submit a stall application and the market office will assign one once it is approved." />
+            <Button onClick={() => navigate("/vendor/applications")} variant="secondary">
+              <FilePlus2 className="mr-2 h-4 w-4" />Go to applications
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Stall details</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <InfoItem label="Stall" value={stall.stall} />
+              <InfoItem label="Section" value={stall.section} />
+              <InfoItem label="Stall type" value={stall.type} />
+              <InfoItem label="Monthly rate" value={stall.rate} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Lease</CardTitle>
+              <CardDescription>
+                {hasLease ? "Your current lease period and renewal status." : "No lease record is on file for this stall yet."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <InfoItem label="Lease start" value={stall.leaseStart} />
+                <InfoItem label="Lease end" value={stall.leaseEnd} />
+                <InfoItem label="Renewal" value={renewalPending ? "Pending Renewal Review" : "Not Requested"} />
+              </div>
+              {hasLease ? (
+                <Button disabled={renewalPending || isRequestingRenewal} onClick={onRequestRenewal} variant="outline">
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                  {renewalPending ? "Renewal requested" : isRequestingRenewal ? "Sending request..." : "Request lease renewal"}
+                </Button>
+              ) : null}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>My requests</CardTitle>
+          <CardDescription>Stall concerns and renewal requests you have sent to the market office.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {stall.supportRequests.length === 0 ? (
+            <div className="p-6"><EmptyState message="No requests on file." /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-border/80 text-left text-sm">
+                <thead className="bg-muted/60 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold" scope="col">Subject</th>
+                    <th className="px-6 py-4 font-semibold" scope="col">Detail</th>
+                    <th className="px-6 py-4 font-semibold" scope="col">Requested</th>
+                    <th className="px-6 py-4 font-semibold" scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {paged.rows.map((item) => (
+                    <tr className="transition hover:bg-muted/30" key={item.id}>
+                      <td className="px-6 py-4 font-medium text-foreground">{item.subject}</td>
+                      <td className="max-w-[320px] px-6 py-4 text-muted-foreground">{item.detail}</td>
+                      <td className="px-6 py-4 text-muted-foreground">{item.requestedAt}</td>
+                      <td className="px-6 py-4"><StatusBadge status={item.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pagination {...paged.pager} className="px-6 py-4" />
+        </CardContent>
+      </Card>
+
+      {showSupportModal ? (
+        <VendorModal onClose={() => setShowSupportModal(false)} title="Report a stall concern">
+          <form className="space-y-4" onSubmit={onSubmitSupport}>
+            <FieldGroup label="Subject">
+              <Input placeholder="e.g. Leaking roof, broken lock" {...form.register("subject")} />
+              <FieldError message={form.formState.errors.subject?.message} />
+            </FieldGroup>
+            <FieldGroup label="Details">
+              <Textarea rows={4} {...form.register("detail")} />
+              <FieldError message={form.formState.errors.detail?.message} />
+            </FieldGroup>
+            <div className="flex flex-wrap gap-3 border-t border-border pt-4">
+              <Button disabled={form.formState.isSubmitting} type="submit">
+                <Send className="mr-2 h-4 w-4" />Submit request
+              </Button>
+              <Button onClick={() => setShowSupportModal(false)} type="button" variant="ghost">Cancel</Button>
+            </div>
+          </form>
+        </VendorModal>
+      ) : null}
+    </div>
+  );
+}
+
 export function VendorBillingPage() {
   const { billings, paymentMethods, recordPayment } = useVendorWorkspace();
   const [selectedBillingId, setSelectedBillingId] = useState<string | null>(null);
@@ -649,8 +828,8 @@ export function VendorBillingPage() {
       form.setError("reference", { type: "manual", message: "GCash reference number is required." });
       return;
     }
-    if (values.method === "GCash" && !paymentProof) {
-      toast.error("Upload proof of payment for GCash.");
+    if (!paymentProof) {
+      toast.error(values.method === "GCash" ? "Upload a screenshot of your GCash payment." : "Upload a photo of the official receipt issued to you.");
       return;
     }
     await recordPayment({ billingId: selectedBilling.id, amount, method: values.method, reference: values.reference, proof: paymentProof, advanceMonths });
@@ -756,7 +935,7 @@ export function VendorBillingPage() {
               <Input placeholder={form.watch("method") === "GCash" ? "Required GCash reference" : "Optional reference or OR number"} {...form.register("reference")} />
               <FieldError message={form.formState.errors.reference?.message} />
             </FieldGroup>
-            <FieldGroup label={`Proof of payment${form.watch("method") === "GCash" ? " *" : ""}`}>
+            <FieldGroup label={form.watch("method") === "GCash" ? "GCash payment screenshot *" : "Photo of official receipt *"}>
               <Input accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(event) => {
                 const file = event.target.files?.[0] ?? null;
                 if (file && file.size > 10 * 1024 * 1024) {
@@ -767,7 +946,12 @@ export function VendorBillingPage() {
                 }
                 setPaymentProof(file);
               }} type="file" />
-              <p className="text-xs text-muted-foreground">PDF, JPG, PNG, or WebP; maximum 10 MB.</p>
+              <p className="text-xs text-muted-foreground">
+                {form.watch("method") === "GCash"
+                  ? "Upload the GCash confirmation showing the amount and reference number."
+                  : "Upload a clear photo of the receipt you were given when you paid at the municipal office."}
+                {" "}PDF, JPG, PNG, or WebP; maximum 10 MB.
+              </p>
             </FieldGroup>
             <div className="flex flex-wrap gap-3 border-t border-border pt-4">
               <Button disabled={form.formState.isSubmitting || remainingBalance <= 0} type="submit">

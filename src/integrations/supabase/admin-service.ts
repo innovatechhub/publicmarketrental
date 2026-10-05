@@ -1,5 +1,5 @@
 import type { ActivityItem, MetricCardData } from "@/types/domain";
-import { supabase } from "@/integrations/supabase/client";
+import { createIsolatedAuthClient, supabase } from "@/integrations/supabase/client";
 
 export interface AdminOption {
   label: string;
@@ -18,6 +18,8 @@ export interface VendorRegistryRecord {
   businessType: string;
   status: string;
   assignedStall: string;
+  rent: number;
+  paymentStatus: string;
   balance: number;
   lastPayment: string;
 }
@@ -554,10 +556,7 @@ export async function fetchVendorRegistry(): Promise<{
 }> {
   const db = requireSupabase();
   const core = await loadCoreMaps();
-  const [billingsResult, violationsResult] = await Promise.all([
-    db.from("billings").select("id, vendor_id, amount_due, amount_paid"),
-    db.from("violations").select("stall_id, vendor_id").order("created_at", { ascending: false }),
-  ]);
+  const billingsResult = await db.from("billings").select("id, vendor_id, amount_due, amount_paid, status");
 
   let paymentsResult = await db.from("payments").select("id, vendor_id, payment_date").eq("verification_status", "verified").order("payment_date", { ascending: false });
   if (paymentsResult.error?.code === "42703") {
@@ -570,18 +569,23 @@ export async function fetchVendorRegistry(): Promise<{
   const billings = billingsResult.data ?? [];
   const payments = paymentsResult.data ?? [];
 
-  const stallByVendorId = new Map<string, string>();
-  for (const v of violationsResult.data ?? []) {
-    if (v.stall_id && v.vendor_id && !stallByVendorId.has(v.vendor_id)) {
-      stallByVendorId.set(v.vendor_id, v.stall_id);
-    }
+  const stallsByVendorId = new Map<string, typeof core.stalls>();
+  for (const stall of core.stalls) {
+    if (!stall.vendor_id) continue;
+    stallsByVendorId.set(stall.vendor_id, [...(stallsByVendorId.get(stall.vendor_id) ?? []), stall]);
   }
 
   const balanceByVendor = new Map<string, number>();
+  const billedVendors = new Set<string>();
+  const overdueVendors = new Set<string>();
+  const partialVendors = new Set<string>();
   for (const billing of billings) {
     if (!billing.vendor_id) continue;
-    const existing = balanceByVendor.get(billing.vendor_id) ?? 0;
-    balanceByVendor.set(billing.vendor_id, existing + Math.max(Number(billing.amount_due ?? 0) - Number(billing.amount_paid ?? 0), 0));
+    billedVendors.add(billing.vendor_id);
+    const remaining = Math.max(Number(billing.amount_due ?? 0) - Number(billing.amount_paid ?? 0), 0);
+    balanceByVendor.set(billing.vendor_id, (balanceByVendor.get(billing.vendor_id) ?? 0) + remaining);
+    if (remaining > 0 && billing.status === "overdue") overdueVendors.add(billing.vendor_id);
+    if (remaining > 0 && Number(billing.amount_paid ?? 0) > 0) partialVendors.add(billing.vendor_id);
   }
 
   const lastPaymentByVendor = new Map<string, string>();
@@ -593,8 +597,18 @@ export async function fetchVendorRegistry(): Promise<{
 
   const rows = core.vendors.map((vendor) => {
     const profile = core.profileById.get(vendor.profile_id);
-    const stallId = stallByVendorId.get(vendor.id);
-    const assignedStall = stallId ? core.stallById.get(stallId)?.label ?? "-" : "-";
+    const vendorStalls = stallsByVendorId.get(vendor.id) ?? [];
+    const assignedStall = vendorStalls.map((stall) => core.stallById.get(stall.id)?.label ?? stall.stall_number).join(", ") || "-";
+    const balance = balanceByVendor.get(vendor.id) ?? 0;
+    const paymentStatus = !billedVendors.has(vendor.id)
+      ? "No Billing"
+      : balance <= 0
+        ? "Paid"
+        : overdueVendors.has(vendor.id)
+          ? "Overdue"
+          : partialVendors.has(vendor.id)
+            ? "Partial"
+            : "Unpaid";
 
     return {
       id: vendor.id,
@@ -606,7 +620,9 @@ export async function fetchVendorRegistry(): Promise<{
       businessType: vendor.business_type ?? "-",
       status: titleizeStatus(vendor.status),
       assignedStall,
-      balance: balanceByVendor.get(vendor.id) ?? 0,
+      rent: vendorStalls.reduce((sum, stall) => sum + Number(stall.monthly_rate ?? 0), 0),
+      paymentStatus,
+      balance,
       lastPayment: lastPaymentByVendor.get(vendor.id) ?? "-",
     };
   });
@@ -661,6 +677,50 @@ export async function updateVendorRecord(
     businessName: input.businessName,
     status: input.status,
   });
+}
+
+export async function createVendorAccount(
+  actorId: string,
+  input: {
+    fullName: string;
+    email: string;
+    phone: string;
+    businessName: string;
+    businessType: string;
+    password: string;
+  },
+) {
+  // Sign up on a throwaway client so the admin's own session is not replaced.
+  // The handle_new_user trigger creates the profile and vendor rows.
+  const authClient = createIsolatedAuthClient();
+  if (!authClient) throw new Error("Supabase client is not configured.");
+
+  const { data, error } = await authClient.auth.signUp({
+    email: input.email.trim().toLowerCase(),
+    password: input.password,
+    options: {
+      data: {
+        full_name: input.fullName,
+        phone: input.phone,
+        role: "vendor",
+        business_name: input.businessName,
+        business_type: input.businessType,
+        address: "",
+      },
+    },
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data.user || data.user.identities?.length === 0) {
+    throw new Error("An account with this email already exists.");
+  }
+
+  await logActivity(actorId, "created", "vendor", data.user.id, {
+    businessName: input.businessName,
+    email: input.email,
+  });
+
+  return { requiresEmailConfirmation: !data.session };
 }
 
 export async function deleteVendor(actorId: string, vendorId: string) {

@@ -18,6 +18,9 @@ const RegisterPage = lazy(() =>
 const ForgotPasswordPage = lazy(() =>
   import("@/pages/auth-pages").then((module) => ({ default: module.ForgotPasswordPage })),
 );
+const ResetPasswordPage = lazy(() =>
+  import("@/pages/auth-pages").then((module) => ({ default: module.ResetPasswordPage })),
+);
 const NotFoundPage = lazy(() =>
   import("@/pages/not-found-page").then((module) => ({ default: module.NotFoundPage })),
 );
@@ -64,7 +67,7 @@ const VendorApplicationsPage = lazy(() =>
   import("@/pages/vendor-pages").then((module) => ({ default: module.VendorApplicationsPage })),
 );
 const VendorStallPage = lazy(() =>
-  import("@/pages/vendor-pages").then((module) => ({ default: module.VendorBillingPage })),
+  import("@/pages/vendor-pages").then((module) => ({ default: module.VendorStallPage })),
 );
 const VendorBillingPage = lazy(() =>
   import("@/pages/vendor-pages").then((module) => ({ default: module.VendorBillingPage })),
@@ -86,6 +89,11 @@ export function AppRouter() {
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             </Route>
+          </Route>
+
+          {/* The emailed recovery link signs the user in, so this cannot sit under GuestOnlyRoute */}
+          <Route element={<AuthLayout />}>
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
           </Route>
 
           <Route element={<BackOfficeRoute />}>

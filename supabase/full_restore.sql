@@ -812,8 +812,8 @@ begin
     raise exception 'Vendor payment entries must be marked as vendor-submitted only.';
   end if;
   if new.verification_status <> 'pending' then raise exception 'Vendor payments must be submitted for verification.'; end if;
-  if lower(new.payment_method) = 'gcash' and nullif(trim(new.proof_path), '') is null then
-    raise exception 'Vendor GCash payments require proof of payment.';
+  if nullif(trim(new.proof_path), '') is null then
+    raise exception 'Vendor payments require an uploaded proof of payment or receipt photo.';
   end if;
   return new;
 end;

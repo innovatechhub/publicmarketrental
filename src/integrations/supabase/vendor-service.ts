@@ -756,7 +756,7 @@ export async function recordVendorPayment(
   const advanceMonths = Math.max(1, Math.min(input.advanceMonths ?? 1, 12));
   const isGcash = input.method.toLowerCase() === "gcash";
   if (isGcash && !input.reference?.trim()) throw new Error("GCash reference number is required.");
-  if (isGcash && !input.proof) throw new Error("Proof of payment is required for GCash.");
+  if (!input.proof) throw new Error(isGcash ? "Proof of payment is required for GCash." : "A photo of the official receipt is required.");
 
   const groupId = crypto.randomUUID();
   let proofPath: string | null = null;

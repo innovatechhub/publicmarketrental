@@ -24,3 +24,13 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
+
+// A client that never stores its session, for creating accounts on behalf of
+// someone else without signing the current user out.
+export function createIsolatedAuthClient() {
+  return supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "sb-isolated-signup" },
+      })
+    : null;
+}

@@ -42,6 +42,7 @@ import { useAuth } from "@/features/auth/auth-context";
 import {
   createBilling,
   createPayment,
+  createVendorAccount,
   createWalkInApplication,
   deleteVendor,
   deleteStall,
@@ -257,6 +258,30 @@ export function AdminVendorsPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
+  const emptyNewVendor = { fullName: "", email: "", phone: "", businessName: "", businessType: "", password: "" };
+  const [showAdd, setShowAdd] = useState(false);
+  const [newVendor, setNewVendor] = useState(emptyNewVendor);
+  const canAddVendor =
+    newVendor.fullName.trim().length >= 3 &&
+    /^\S+@\S+\.\S+$/.test(newVendor.email.trim()) &&
+    newVendor.businessName.trim().length >= 2 &&
+    newVendor.password.length >= 8;
+
+  const addVendor = useMutation({
+    mutationFn: async () => createVendorAccount(user!.id, newVendor),
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.vendors }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.vendorOptions }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.userOptions }),
+      ]);
+      toast.success(result.requiresEmailConfirmation ? "Vendor created. They must confirm their email before signing in." : "Vendor created.");
+      setShowAdd(false);
+      setNewVendor(emptyNewVendor);
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
   const removeVendor = useMutation({
     mutationFn: async () => deleteVendor(user!.id, deleteId!),
     onSuccess: async () => {
@@ -279,7 +304,7 @@ export function AdminVendorsPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>VENDOR MANAGEMENT</h2>
         <button
-          onClick={() => {}}
+          onClick={() => setShowAdd(true)}
           style={{ background: "#1e3a8a", color: "#fff", border: "none", borderRadius: "8px", padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
           type="button"
         >
@@ -290,7 +315,7 @@ export function AdminVendorsPage() {
       {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       {data ? (
         <MockupTable
-          head={["STALL #", "VENDOR NAME", "CONTACT", "TYPE", "RENT", "PAYMENT STATUS", "ACTIONS"]}
+          head={["STALL #", "VENDOR NAME", "CONTACT", "BUSINESS TYPE", "RENT", "BALANCE", "PAYMENT STATUS", "ACCOUNT", "ACTIONS"]}
         >
           {paged.rows.map((item) => (
             <MockupTr key={item.id}>
@@ -302,8 +327,10 @@ export function AdminVendorsPage() {
                   <div>{item.phone}</div>
                 </div>
               </MockupTd>
-              <MockupTd>{item.businessType || "Indoor"}</MockupTd>
+              <MockupTd>{item.businessType || "—"}</MockupTd>
+              <MockupTd>{item.rent > 0 ? formatCurrency(item.rent) : "—"}</MockupTd>
               <MockupTd>{formatCurrency(item.balance)}</MockupTd>
+              <MockupTd><PaymentStatusBadge status={item.paymentStatus} /></MockupTd>
               <MockupTd><PaymentStatusBadge status={item.status} /></MockupTd>
               <MockupTd>
                 <div style={{ display: "flex", gap: "12px" }}>
@@ -335,6 +362,26 @@ export function AdminVendorsPage() {
             <Button disabled={saveVendor.isPending} onClick={() => saveVendor.mutate()}><Save className="mr-2 h-4 w-4" />Save vendor</Button>
             <Button disabled={notifyVendor.isPending} onClick={() => notifyVendor.mutate()} variant="outline"><BellRing className="mr-2 h-4 w-4" />Send notice</Button>
             <Button onClick={() => setEditId(null)} variant="ghost">Cancel</Button>
+          </ModalFooter>
+        </Modal>
+      ) : null}
+
+      {showAdd ? (
+        <Modal onClose={() => setShowAdd(false)} title="Add new vendor">
+          <FormGrid>
+            <Field label="Full name"><Input onChange={(e) => setNewVendor((c) => ({ ...c, fullName: e.target.value }))} value={newVendor.fullName} /></Field>
+            <Field label="Email"><Input onChange={(e) => setNewVendor((c) => ({ ...c, email: e.target.value }))} type="email" value={newVendor.email} /></Field>
+            <Field label="Phone"><Input onChange={(e) => setNewVendor((c) => ({ ...c, phone: e.target.value }))} value={newVendor.phone} /></Field>
+            <Field label="Temporary password"><Input autoComplete="new-password" onChange={(e) => setNewVendor((c) => ({ ...c, password: e.target.value }))} type="password" value={newVendor.password} /></Field>
+            <Field label="Business name"><Input onChange={(e) => setNewVendor((c) => ({ ...c, businessName: e.target.value }))} value={newVendor.businessName} /></Field>
+            <Field label="Business type"><Input onChange={(e) => setNewVendor((c) => ({ ...c, businessType: e.target.value }))} value={newVendor.businessType} /></Field>
+          </FormGrid>
+          <p className="text-xs text-muted-foreground">
+            This creates a vendor login. Password must be at least 8 characters; share it with the vendor so they can sign in and change it.
+          </p>
+          <ModalFooter>
+            <Button disabled={!canAddVendor || addVendor.isPending} onClick={() => addVendor.mutate()}><Plus className="mr-2 h-4 w-4" />{addVendor.isPending ? "Creating…" : "Create vendor"}</Button>
+            <Button onClick={() => setShowAdd(false)} variant="ghost">Cancel</Button>
           </ModalFooter>
         </Modal>
       ) : null}
@@ -1319,6 +1366,27 @@ export function AdminReportsPage() {
     [stalls?.rows],
   );
 
+  const occupancyBySection = useMemo(
+    () => sectionNames.map((section) => {
+      const rows = (stalls?.rows ?? []).filter((item) => item.section === section);
+      return {
+        section,
+        occupied: rows.filter((item) => item.status === "Occupied").length,
+        available: rows.filter((item) => item.status === "Available").length,
+      };
+    }),
+    [sectionNames, stalls?.rows],
+  );
+
+  const stallTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of stalls?.rows ?? []) {
+      const type = item.type?.trim() || "Unspecified";
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((left, right) => right[1] - left[1]);
+  }, [stalls?.rows]);
+
   const paged = usePagination(data?.rows ?? []);
 
   const exportCsv = () => {
@@ -1349,10 +1417,13 @@ export function AdminReportsPage() {
             <div style={{ height: "200px", marginBottom: "16px" }}>
               <Bar
                 data={{
-                  labels: sectionNames.filter((s) => s !== "All sections"),
-                  datasets: [{ label: "Stalls", data: sectionNames.filter((s) => s !== "All sections").map(() => Math.floor(Math.random() * 50 + 10)), backgroundColor: "#1e3a8a", borderRadius: 4 }],
+                  labels: occupancyBySection.map((item) => item.section),
+                  datasets: [
+                    { label: "Occupied", data: occupancyBySection.map((item) => item.occupied), backgroundColor: "#1e3a8a", borderRadius: 4 },
+                    { label: "Available", data: occupancyBySection.map((item) => item.available), backgroundColor: "#16a34a", borderRadius: 4 },
+                  ],
                 }}
-                options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, responsive: true }}
+                options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, responsive: true }}
               />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "24px", borderTop: "1px solid #e5e7eb", paddingTop: "16px" }}>
@@ -1378,9 +1449,10 @@ export function AdminReportsPage() {
             </div>
             <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
               <p style={{ fontWeight: 700, color: "#111827", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 0, marginBottom: "16px" }}>STALL TYPE BREAKDOWN</p>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}><span style={{ fontSize: "14px", color: "#374151" }}>Indoor Stalls:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>—</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}><span style={{ fontSize: "14px", color: "#374151" }}>Outdoor Stalls:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>—</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0" }}><span style={{ fontSize: "14px", color: "#374151" }}>Kiosks:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>—</span></div>
+              {stallTypeCounts.length === 0 ? <p style={{ fontSize: "14px", color: "#9ca3af", margin: 0 }}>No stall records.</p> : null}
+              {stallTypeCounts.map(([type, count]) => (
+                <div key={type} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6" }}><span style={{ fontSize: "14px", color: "#374151" }}>{type}:</span><span style={{ fontSize: "14px", fontWeight: 700, color: "#1e3a8a" }}>{count}</span></div>
+              ))}
             </div>
           </div>
 

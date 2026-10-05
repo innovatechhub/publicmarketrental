@@ -29,6 +29,17 @@ const forgotPasswordSchema = z.object({
   email: z.string().email("Enter a valid email address."),
 });
 
+const resetPasswordSchema = z
+  .object({
+    password: z.string().min(8, "Password must be at least 8 characters."),
+    confirmPassword: z.string().min(8, "Confirm your new password."),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords do not match.",
+    path: ["confirmPassword"],
+  });
+
+type ResetPasswordValues = z.infer<typeof resetPasswordSchema>;
 type LoginFormValues = z.infer<typeof loginSchema>;
 type RegisterFormValues = z.infer<typeof registerSchema>;
 type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>;
@@ -192,6 +203,43 @@ export function ForgotPasswordForm() {
 
       <Button className="w-full bg-[#294cc2] uppercase hover:bg-[#2045b8]" type="submit">
         Request password reset
+      </Button>
+    </form>
+  );
+}
+
+export function ResetPasswordForm() {
+  const navigate = useNavigate();
+  const { completePasswordReset, user } = useAuth();
+  const form = useForm<ResetPasswordValues>({
+    resolver: zodResolver(resetPasswordSchema),
+    defaultValues: {
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  const onSubmit = form.handleSubmit(async (values) => {
+    try {
+      await completePasswordReset(values.password);
+      toast.success("Password updated.");
+      navigate(user ? getPortalHome(user.role) : "/login");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update password.");
+    }
+  });
+
+  return (
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <Field label="New password" error={form.formState.errors.password?.message}>
+        <Input autoComplete="new-password" type="password" {...form.register("password")} />
+      </Field>
+      <Field label="Confirm new password" error={form.formState.errors.confirmPassword?.message}>
+        <Input autoComplete="new-password" type="password" {...form.register("confirmPassword")} />
+      </Field>
+
+      <Button className="w-full bg-[#294cc2] uppercase hover:bg-[#2045b8]" disabled={form.formState.isSubmitting} type="submit">
+        {form.formState.isSubmitting ? "Saving..." : "Set new password"}
       </Button>
     </form>
   );

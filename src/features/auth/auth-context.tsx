@@ -42,6 +42,7 @@ interface AuthContextValue {
   changeEmail: (nextEmail: string) => Promise<void>;
   changePassword: (currentPassword: string, nextPassword: string) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
+  completePasswordReset: (nextPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -261,8 +262,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const db = requireSupabase();
 
         const { error } = await db.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-          redirectTo: `${window.location.origin}/login`,
+          redirectTo: `${window.location.origin}/reset-password`,
         });
+
+        if (error) {
+          throw new Error(error.message);
+        }
+      },
+      async completePasswordReset(nextPassword) {
+        const db = requireSupabase();
+
+        // The emailed recovery link signs the user in; without that session there is nothing to update.
+        const { error } = await db.auth.updateUser({ password: nextPassword });
 
         if (error) {
           throw new Error(error.message);
