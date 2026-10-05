@@ -84,6 +84,7 @@ import {
 import { isSupabaseConfigured } from "@/integrations/supabase/client";
 import { DataTable } from "@/components/shared/data-table";
 import { PageHeader } from "@/components/shared/page-header";
+import { Pagination, usePagination } from "@/components/shared/pagination";
 import { StallHeatMap } from "@/components/shared/stall-heat-map";
 import { StatCard } from "@/components/shared/stat-card";
 import { Badge } from "@/components/ui/badge";
@@ -232,6 +233,7 @@ export function AdminVendorsPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ fullName: "", email: "", phone: "", businessName: "", businessType: "", status: "Active" });
+  const paged = usePagination(data?.rows ?? []);
 
   const openEdit = (id: string) => {
     const v = data?.rows.find((r) => r.id === id);
@@ -290,7 +292,7 @@ export function AdminVendorsPage() {
         <MockupTable
           head={["STALL #", "VENDOR NAME", "CONTACT", "TYPE", "RENT", "PAYMENT STATUS", "ACTIONS"]}
         >
-          {data.rows.map((item) => (
+          {paged.rows.map((item) => (
             <MockupTr key={item.id}>
               <MockupTd><span style={{ fontWeight: 600 }}>{item.assignedStall || "—"}</span></MockupTd>
               <MockupTd>{item.fullName}</MockupTd>
@@ -313,6 +315,7 @@ export function AdminVendorsPage() {
           ))}
         </MockupTable>
       ) : null}
+      <Pagination {...paged.pager} />
 
       {editId && selected ? (
         <Modal onClose={() => setEditId(null)} title="Edit vendor">
@@ -363,6 +366,9 @@ export function AdminApplicationsPage() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [assignedStallId, setAssignedStallId] = useState("");
   const [walkIn, setWalkIn] = useState({ vendorId: "", businessType: "", preferredSection: "Dry Goods", preferredStallType: "General Merchandise", remarks: "" });
+
+  const paged = usePagination(data?.rows ?? []);
+  const pendingPaged = usePagination((data?.rows ?? []).filter((r) => r.status === "Pending" || r.status === "Under Review"), 5);
 
   const selected = data?.rows.find((r) => r.id === reviewId);
   const { data: applicationDocuments = [], isPending: isDocumentsPending, error: documentsError } = useQuery({
@@ -453,10 +459,10 @@ export function AdminApplicationsPage() {
         <p style={{ fontSize: "13px", color: "#6b7280", margin: "0 0 16px" }}>Review and approve new vendor applications</p>
         {isPending ? <LoadingCard message="Loading applications..." /> : null}
         {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
-        {!isPending && !error && data && data.rows.filter((r) => r.status === "Pending" || r.status === "Under Review").length === 0 ? (
+        {!isPending && !error && data && pendingPaged.pager.total === 0 ? (
           <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "14px", padding: "16px 0" }}>No pending applications</p>
         ) : null}
-        {data?.rows.filter((r) => r.status === "Pending" || r.status === "Under Review").map((item) => (
+        {pendingPaged.rows.map((item) => (
           <div key={item.id} style={{ borderTop: "1px solid #f3f4f6", padding: "10px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <p style={{ margin: 0, fontWeight: 600, fontSize: "14px" }}>{item.vendorName}</p>
@@ -465,6 +471,7 @@ export function AdminApplicationsPage() {
             <button onClick={() => openReview(item.id)} style={{ background: "#1e3a8a", color: "#fff", border: "none", borderRadius: "6px", padding: "6px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }} type="button">Review</button>
           </div>
         ))}
+        <Pagination {...pendingPaged.pager} className="border-t border-border/60 pt-3" />
       </div>
 
       {/* All Applications table */}
@@ -481,7 +488,7 @@ export function AdminApplicationsPage() {
           <MockupTable head={["DATE", "APPLICANT", "BUSINESS", "CONTACT", "PREFERENCE", "STATUS", "ACTIONS"]}>
             {data.rows.length === 0 ? (
               <tr><td colSpan={7} style={{ textAlign: "center", color: "#9ca3af", padding: "24px", fontSize: "14px" }}>No applications yet</td></tr>
-            ) : data.rows.map((item) => (
+            ) : paged.rows.map((item) => (
               <MockupTr key={item.id}>
                 <MockupTd style={{ color: "#6b7280", fontSize: "13px" }}>{item.updatedAt}</MockupTd>
                 <MockupTd style={{ fontWeight: 600 }}>{item.vendorName}</MockupTd>
@@ -506,6 +513,7 @@ export function AdminApplicationsPage() {
             ))}
           </MockupTable>
         ) : null}
+        <Pagination {...paged.pager} className="mt-4" />
       </div>
     </div>
 
@@ -748,6 +756,7 @@ export function AdminStallsPage({ embedded = false }: { embedded?: boolean } = {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ sectionId: "", stallNumber: "", stallType: "", monthlyRate: "0", status: "Available", notes: "" });
   const [view, setView] = useState<"map" | "list">("map");
+  const paged = usePagination(data?.rows ?? []);
 
   const openCreate = () => {
     setEditId(null);
@@ -806,8 +815,9 @@ export function AdminStallsPage({ embedded = false }: { embedded?: boolean } = {
               <StallHeatMap onEdit={openEdit} stalls={data.rows} />
             </div>
           ) : (
+            <>
             <MockupTable head={["STALL", "TYPE", "SECTION", "MONTHLY RATE", "STATUS", "NOTES", "ACTIONS"]}>
-              {data.rows.map((item) => (
+              {paged.rows.map((item) => (
                 <MockupTr key={item.id}>
                   <MockupTd><span style={{ fontWeight: 600 }}>{item.stall}</span></MockupTd>
                   <MockupTd style={{ color: "#6b7280" }}>{item.type}</MockupTd>
@@ -824,6 +834,8 @@ export function AdminStallsPage({ embedded = false }: { embedded?: boolean } = {
                 </MockupTr>
               ))}
             </MockupTable>
+            <Pagination {...paged.pager} />
+            </>
           )}
         </>
       ) : null}
@@ -886,6 +898,7 @@ export function AdminBillingPage() {
   const [form, setForm] = useState({ vendorId: "", billingMonth: todayIso(), dueDate: todayIso(), notes: "" });
 
   const selected = data?.rows.find((r) => r.id === editId);
+  const paged = usePagination(data?.rows ?? []);
 
   const openCreate = () => {
     setEditId(null);
@@ -928,7 +941,7 @@ export function AdminBillingPage() {
         <>
           <SummaryGrid summary={data.summary} />
           <Tbl head={["Vendor", "Stall", "Billing month", "Amount due", "Penalties", "Due date", "Status", "Actions"]}>
-            {data.rows.map((item) => (
+            {paged.rows.map((item) => (
               <Tr key={item.id}>
                 <Td><span className="font-medium text-foreground">{item.vendor}</span></Td>
                 <Td>{item.stall}</Td>
@@ -943,6 +956,7 @@ export function AdminBillingPage() {
               </Tr>
             ))}
           </Tbl>
+          <Pagination {...paged.pager} />
         </>
       ) : null}
 
@@ -991,6 +1005,8 @@ export function AdminPaymentsPage() {
 
   const billingRows = billingData?.rows ?? [];
   const paymentRows = paymentData?.rows ?? [];
+  const pagedPayments = usePagination(paymentRows);
+  const pagedBillings = usePagination(billingRows);
 
   const lastPaymentByBillingId = useMemo(() => {
     const map = new Map<string, string>();
@@ -1048,7 +1064,7 @@ export function AdminPaymentsPage() {
         <div className="space-y-3">
           <h3 className="text-sm font-bold uppercase tracking-wide text-slate-800">Payment records and submissions</h3>
           <Tbl head={["Reference", "Vendor", "Date", "Amount", "Method", "Status", "Proof", "Review"]}>
-            {paymentRows.map((item) => (
+            {pagedPayments.rows.map((item) => (
               <Tr key={item.id}>
                 <Td>{item.internalReference}</Td>
                 <Td>{item.vendor}</Td>
@@ -1068,6 +1084,7 @@ export function AdminPaymentsPage() {
               </Tr>
             ))}
           </Tbl>
+          <Pagination {...pagedPayments.pager} />
         </div>
       ) : null}
 
@@ -1083,7 +1100,7 @@ export function AdminPaymentsPage() {
 
       {billingRows.length > 0 && (
         <MockupTable head={["STALL #", "VENDOR", "AMOUNT DUE", "LAST PAYMENT", "DUE DATE", "STATUS", "ACTIONS"]}>
-          {billingRows.map((item) => {
+          {pagedBillings.rows.map((item) => {
             const remaining = Math.max(item.amountDue - item.amountPaid, 0);
             const lastPaid = lastPaymentByBillingId.get(item.id) ?? "—";
             const isPaidOff = item.status === "Paid";
@@ -1118,6 +1135,7 @@ export function AdminPaymentsPage() {
           })}
         </MockupTable>
       )}
+      <Pagination {...pagedBillings.pager} />
 
       {showModal ? (
         <Modal onClose={() => setShowModal(false)} title="Record Payment">
@@ -1167,6 +1185,7 @@ export function AdminViolationsPage() {
   const [modal, setModal] = useState<"form" | "delete" | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ vendorId: "", stallId: "", category: "", description: "", violationDate: todayIso(), penaltyAmount: "0", actionTaken: "", status: "Open" });
+  const paged = usePagination(data?.rows ?? []);
 
   const openCreate = () => {
     setEditId(null);
@@ -1218,7 +1237,7 @@ export function AdminViolationsPage() {
         <>
           <SummaryGrid summary={data.summary} />
           <Tbl head={["Vendor", "Category", "Date", "Penalty", "Status", "Actions"]}>
-            {data.rows.map((item) => (
+            {paged.rows.map((item) => (
               <Tr key={item.id}>
                 <Td><span className="font-medium text-foreground">{item.vendor}</span></Td>
                 <Td>{item.category}</Td>
@@ -1234,6 +1253,7 @@ export function AdminViolationsPage() {
               </Tr>
             ))}
           </Tbl>
+          <Pagination {...paged.pager} />
         </>
       ) : null}
 
@@ -1299,6 +1319,8 @@ export function AdminReportsPage() {
     [stalls?.rows],
   );
 
+  const paged = usePagination(data?.rows ?? []);
+
   const exportCsv = () => {
     if (!data) return;
     const headers = Object.keys(data.rows[0] ?? {});
@@ -1363,7 +1385,7 @@ export function AdminReportsPage() {
           </div>
 
           <Tbl head={["Reference", "Date", "Billing month", "Vendor", "Block", "Stall", "Amount", "Method", "External ref.", "Status"]}>
-            {data.rows.map((row) => (
+            {paged.rows.map((row) => (
               <Tr key={`${row.payment_reference}-${row.billing_month}`}>
                 <Td>{row.payment_reference}</Td><Td>{row.payment_date}</Td><Td>{row.billing_month}</Td>
                 <Td>{row.vendor}</Td><Td>{row.block}</Td><Td>{row.stall}</Td><Td>{row.amount}</Td>
@@ -1371,6 +1393,7 @@ export function AdminReportsPage() {
               </Tr>
             ))}
           </Tbl>
+          <Pagination {...paged.pager} />
           {data.rows.length === 0 ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No payment records match these filters.</p> : null}
 
           <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
@@ -1396,6 +1419,7 @@ export function AdminNotificationsPage() {
   const { data: users = [] } = useQuery({ queryKey: queryKeys.userOptions, queryFn: fetchUserOptions, enabled: isSupabaseConfigured });
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ userId: "", title: "", message: "", type: "info", link: "" });
+  const paged = usePagination(data ?? []);
 
   const save = useMutation({
     mutationFn: async () => createAdminNotification(user!.id, form),
@@ -1419,7 +1443,7 @@ export function AdminNotificationsPage() {
       {isPending ? <LoadingCard message="Loading notifications..." /> : null}
       {error ? <ErrorCard message={getErrorMessage(error)} /> : null}
       <Tbl head={["Recipient", "Title", "Message", "Status", "Actions"]}>
-        {(data ?? []).map((item) => (
+        {paged.rows.map((item) => (
           <Tr key={item.id}>
             <Td><span className="font-medium text-foreground">{item.recipient}</span></Td>
             <Td>{item.title}</Td>
@@ -1446,6 +1470,7 @@ export function AdminNotificationsPage() {
           </Tr>
         ))}
       </Tbl>
+      <Pagination {...paged.pager} />
 
       {showModal ? (
         <Modal onClose={() => setShowModal(false)} title="Create notification">
@@ -1481,6 +1506,7 @@ export function AdminStaffPage() {
   const [form, setForm] = useState({ role: "Admin", positionTitle: "", isActive: true });
 
   const selected = data?.rows.find((r) => r.id === editId);
+  const paged = usePagination(data?.rows ?? []);
 
   const openEdit = (id: string) => {
     const s = data?.rows.find((r) => r.id === id);
@@ -1508,7 +1534,7 @@ export function AdminStaffPage() {
         <>
           <SummaryGrid summary={data.summary} />
           <Tbl head={["Name", "Email", "Role", "Position", "Status", "Actions"]}>
-            {data.rows.map((item) => (
+            {paged.rows.map((item) => (
               <Tr key={item.id}>
                 <Td><span className="font-medium text-foreground">{item.name}</span></Td>
                 <Td className="text-muted-foreground">{item.email}</Td>
@@ -1521,6 +1547,7 @@ export function AdminStaffPage() {
               </Tr>
             ))}
           </Tbl>
+          <Pagination {...paged.pager} />
         </>
       ) : null}
 
@@ -1560,6 +1587,7 @@ export function AdminSettingsPage() {
   const [pickup, setPickup] = useState({ enabled: false, schedule: "", location: "", contact: "", instructions: "" });
   const [editDocId, setEditDocId] = useState<string | null>(null);
   const [docForm, setDocForm] = useState({ name: "", description: "", isRequired: true, hasExpiry: true, sortOrder: "0" });
+  const pagedDocs = usePagination(data?.documentRequirements ?? []);
 
   useEffect(() => {
     if (!data) return;
@@ -1634,7 +1662,7 @@ export function AdminSettingsPage() {
             <CardHeader><CardTitle>Document requirements</CardTitle></CardHeader>
             <CardContent className="p-0">
               <Tbl head={["Document name", "Required", "Has expiry", "Sort order", "Actions"]}>
-                {data.documentRequirements.map((item) => (
+                {pagedDocs.rows.map((item) => (
                   <Tr key={item.id}>
                     <Td>
                       <div>
@@ -1651,6 +1679,7 @@ export function AdminSettingsPage() {
                   </Tr>
                 ))}
               </Tbl>
+              <Pagination {...pagedDocs.pager} className="px-6 py-4" />
             </CardContent>
             </Card>
 

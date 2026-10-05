@@ -28,6 +28,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { PageHeader } from "@/components/shared/page-header";
+import { Pagination, usePagination } from "@/components/shared/pagination";
 import { StatCard } from "@/components/shared/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -615,6 +616,7 @@ export function VendorBillingPage() {
     setSelectedBillingId(next?.id ?? null);
   }, [billings, orderedBillings, selectedBillingId]);
 
+  const paged = usePagination(orderedBillings);
   const selectedBilling = orderedBillings.find((item) => item.id === selectedBillingId) ?? null;
   const remainingBalance = selectedBilling ? Math.max(selectedBilling.amountDue - selectedBilling.amountPaid, 0) : 0;
   const totalOutstanding = billings.reduce((sum, item) => sum + Math.max(item.amountDue - item.amountPaid, 0), 0);
@@ -698,7 +700,7 @@ export function VendorBillingPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {orderedBillings.map((item) => {
+                  {paged.rows.map((item) => {
                     const remaining = Math.max(item.amountDue - item.amountPaid, 0);
                     return (
                       <tr className={`transition hover:bg-muted/30 ${item.id === selectedBillingId ? "bg-primary/5" : ""}`} key={item.id}>
@@ -724,6 +726,7 @@ export function VendorBillingPage() {
               </table>
             </div>
           )}
+          <Pagination {...paged.pager} className="px-6 py-4" />
         </CardContent>
       </Card>
 
@@ -789,6 +792,7 @@ export function VendorNotificationsPage() {
   );
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const paged = usePagination(orderedNotifications);
 
   return (
     <div className="space-y-6">
@@ -826,7 +830,7 @@ export function VendorNotificationsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {orderedNotifications.map((item) => (
+                  {paged.rows.map((item) => (
                     <tr
                       className={`cursor-pointer transition hover:bg-muted/30 ${!item.read ? "bg-warning/5" : ""}`}
                       key={item.id}
@@ -857,6 +861,7 @@ export function VendorNotificationsPage() {
               </table>
             </div>
           )}
+          <Pagination {...paged.pager} className="px-6 py-4" />
         </CardContent>
       </Card>
       {openedNotificationId ? (() => {
@@ -992,7 +997,10 @@ function ApplicationsTable({
   onSelect: (applicationId: string) => void;
   onDelete: (applicationId: string) => void;
 }) {
+  const paged = usePagination(applications);
+
   return (
+    <>
     <div className="overflow-x-auto">
       <table className="min-w-full text-left text-sm">
         <thead className="border-y border-border/70 bg-muted/35 text-xs uppercase tracking-[0.18em] text-muted-foreground">
@@ -1005,7 +1013,7 @@ function ApplicationsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-border/60">
-          {applications.map((item) => {
+          {paged.rows.map((item) => {
             const selected = item.id === selectedApplicationId;
 
             return (
@@ -1075,6 +1083,8 @@ function ApplicationsTable({
         </tbody>
       </table>
     </div>
+    <Pagination {...paged.pager} className="px-5 py-4" />
+    </>
   );
 }
 
