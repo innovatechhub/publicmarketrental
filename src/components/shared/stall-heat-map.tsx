@@ -309,6 +309,11 @@ export function StallHeatMap({ stalls, onEdit }: StallHeatMapProps) {
               <span className="font-bold" style={{ color: s.text }}>{counts[key]}</span>
             </div>
           ) : null)}
+        {counts.unknown > 0 ? (
+          <span className="text-xs text-gray-500">
+            {counts.unknown} of {sheet.stalls.length} stalls on this sheet have no record ({stalls.length} stall records loaded)
+          </span>
+        ) : null}
       </div>
 
       {/* Scrollable map */}
