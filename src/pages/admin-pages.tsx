@@ -788,7 +788,7 @@ export function AdminStallsPage({ embedded = false }: { embedded?: boolean } = {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>{embedded ? "MARKET BLOCKS & STALL CATEGORIES" : "GROUND FLOOR PLAN"}</h2>
+        <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#1e3a8a", margin: 0 }}>{embedded ? "MARKET BLOCKS & STALL CATEGORIES" : "MARKET STALL MAP"}</h2>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #d1d5db" }}>
             <button onClick={() => setView("map")} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: 500, background: view === "map" ? "#1e3a8a" : "#fff", color: view === "map" ? "#fff" : "#374151", border: "none", cursor: "pointer" }} type="button">Map</button>

@@ -1,6 +1,43 @@
--- Seed every stall number drawn on the admin stall map (all sheets).
--- Stall numbers are unique across the whole market, so a number that already
--- exists in any section is skipped. Run after the base schema/seed.
+-- Stall map: one row per stall number, and a row for every stall on the map.
+--
+-- The admin stall map looks stalls up by number, and numbers are unique across
+-- the whole market. Earlier seeds inserted some numbers under two sections.
+--
+-- 1. Merge duplicate stall numbers into one row. The row kept is the one with a
+--    vendor, then the occupied one, then the one outside Wet Market (the copy
+--    the heat-map seed added), then the oldest. Anything pointing at a removed
+--    row (applications, billings, leases, ...) is repointed to the kept row.
+-- 2. Add any stall drawn on the map that has no row yet.
+
+do $$
+declare
+  ref record;
+begin
+  create temp table stall_dedupe on commit drop as
+  select st.id,
+         first_value(st.id) over (
+           partition by st.stall_number
+           order by (st.vendor_id is not null) desc,
+                    (st.status = 'occupied') desc,
+                    (sec.code <> 'wet_market') desc,
+                    st.created_at, st.id
+         ) as keep_id
+  from public.stalls st
+  join public.market_sections sec on sec.id = st.section_id;
+
+  delete from stall_dedupe where id = keep_id;
+
+  for ref in
+    select c.conrelid::regclass as tbl, a.attname as col
+    from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+    where c.contype = 'f' and c.confrelid = 'public.stalls'::regclass
+  loop
+    execute format('update %s t set %I = d.keep_id from stall_dedupe d where t.%I = d.id', ref.tbl, ref.col, ref.col);
+  end loop;
+
+  delete from public.stalls st using stall_dedupe d where st.id = d.id;
+end $$;
 
 insert into public.market_sections (code, name, description, sort_order) values
   ('dry_goods',    'Dry Goods',    'General merchandise, clothing, and non-perishable goods', 1),
