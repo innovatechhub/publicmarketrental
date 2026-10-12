@@ -18,7 +18,7 @@ export function AdminLayout({ navigation }: AdminLayoutProps) {
   return (
     <div className="min-h-screen" style={{ background: "#f0f2f5" }}>
       {/* Top Header */}
-      <header style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "0 32px" }}>
+      <header className="print:hidden" style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "0 32px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: "80px", maxWidth: "1400px", margin: "0 auto" }}>
           {/* Logo + Title */}
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
@@ -66,7 +66,7 @@ export function AdminLayout({ navigation }: AdminLayoutProps) {
       </header>
 
       {/* Top Navigation Tabs */}
-      <nav style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "0 32px" }}>
+      <nav className="print:hidden" style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "0 32px" }}>
         <div style={{ display: "flex", gap: "4px", maxWidth: "1400px", margin: "0 auto" }}>
           {visibleNavigation.map((item) => (
             <NavLink

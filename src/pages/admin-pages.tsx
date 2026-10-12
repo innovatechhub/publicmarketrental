@@ -1412,7 +1412,7 @@ export function AdminReportsPage() {
       {data ? (
         <>
           {/* Stall Occupancy Overview card */}
-          <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
+          <div className="print:hidden" style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
             <p style={{ fontWeight: 700, color: "#111827", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 0, marginBottom: "16px" }}>STALL OCCUPANCY OVERVIEW</p>
             <div style={{ height: "200px", marginBottom: "16px" }}>
               <Bar
@@ -1437,7 +1437,7 @@ export function AdminReportsPage() {
           </div>
 
           {/* Revenue Summary + Stall Type Breakdown */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+          <div className="print:!hidden" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
             <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "24px" }}>
               <p style={{ fontWeight: 700, color: "#111827", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 0, marginBottom: "16px" }}>REVENUE SUMMARY</p>
               {data.summary.map((item) => (
@@ -1468,7 +1468,7 @@ export function AdminReportsPage() {
           <Pagination {...paged.pager} />
           {data.rows.length === 0 ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No payment records match these filters.</p> : null}
 
-          <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+          <div className="print:!hidden" style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
             <button onClick={exportCsv} style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 18px", fontSize: "13px", fontWeight: 600, cursor: "pointer", color: "#374151", display: "flex", alignItems: "center", gap: "6px" }} type="button">
               <Download className="h-4 w-4" /> Export CSV
             </button>

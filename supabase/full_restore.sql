@@ -225,7 +225,7 @@ create table public.payments (
   payment_date date not null,
   payment_method text not null,
   receipt_number text,
-  verification_status text not null default 'pending' check (verification_status in ('pending', 'verified', 'rejected', 'voided')),
+  verification_status text not null default 'pending' check (verification_status in ('pending', 'verified', 'rejected')),
   proof_path text,
   payment_group_id uuid not null default gen_random_uuid(),
   internal_reference text not null unique default ('PAY-' || to_char(timezone('utc', now()), 'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))),

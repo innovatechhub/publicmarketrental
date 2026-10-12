@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -44,24 +44,17 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 type RegisterFormValues = z.infer<typeof registerSchema>;
 type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>;
 
-export function LoginForm({ portal = "admin" }: { portal?: "admin" | "vendor" }) {
+export function LoginForm() {
   const navigate = useNavigate();
   const { signIn } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "admin@culasi.gov.ph",
-      password: "culasi123",
+      email: "",
+      password: "",
     },
   });
-
-  useEffect(() => {
-    form.reset({
-      email: portal === "vendor" ? "vendor@culasi.gov.ph" : "admin@culasi.gov.ph",
-      password: "culasi123",
-    });
-  }, [form, portal]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
