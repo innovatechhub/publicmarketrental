@@ -46,7 +46,7 @@ function BlueprintTile({ placement, stall, onEdit, onSelect }: {
 }) {
   const sk = stall ? normalizeStatus(stall.status) : "unknown";
   const ss = STATUS_STYLES[sk];
-  const sectionLabel = stall?.type?.trim();
+  const sectionLabel = stall?.section && stall.section !== "Unassigned" ? stall.section : undefined;
   return (
     <button
       aria-label={stall ? `Stall ${stall.stall} — ${stall.status}` : `Stall ${placement.num}`}
